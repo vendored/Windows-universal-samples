@@ -1,4 +1,4 @@
-﻿//*********************************************************
+//*********************************************************
 //
 // Copyright (c) Microsoft. All rights reserved.
 // This code is licensed under the MIT License (MIT).
@@ -13,6 +13,7 @@
 
 #include "Scenario2_Client.g.h"
 #include "MainPage.h"
+#include "SampleConfiguration.h"
 
 namespace winrt::SDKTemplate::implementation
 {
@@ -23,32 +24,34 @@ namespace winrt::SDKTemplate::implementation
         void OnNavigatedTo(Windows::UI::Xaml::Navigation::NavigationEventArgs const& e);
         fire_and_forget OnNavigatedFrom(Windows::UI::Xaml::Navigation::NavigationEventArgs const&);
 
-        fire_and_forget ConnectButton_Click();
-        fire_and_forget ServiceList_SelectionChanged();
-        fire_and_forget CharacteristicList_SelectionChanged();
-        fire_and_forget CharacteristicReadButton_Click();
-        fire_and_forget CharacteristicWriteButton_Click();
-        fire_and_forget CharacteristicWriteButtonInt_Click();
-        fire_and_forget ValueChangedSubscribeToggle_Click();
+        fire_and_forget ConnectButton_Click(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
+        fire_and_forget ServiceList_SelectionChanged(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
+        fire_and_forget CharacteristicList_SelectionChanged(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
+        fire_and_forget CharacteristicReadButton_Click(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
+        fire_and_forget CharacteristicWriteButton_Click(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
+        fire_and_forget CharacteristicWriteButtonInt_Click(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
+        fire_and_forget ValueChangedSubscribeToggle_Click(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
 
     private:
         SDKTemplate::MainPage rootPage{ MainPage::Current() };
-        Windows::Devices::Bluetooth::BluetoothLEDevice bluetoothLeDevice{ nullptr };
+        Windows::Devices::Bluetooth::BluetoothLEDevice bluetoothLEDevice{ nullptr };
         Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic selectedCharacteristic{ nullptr };
 
         // Only one registered characteristic at a time.
         Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic registeredCharacteristic{ nullptr };
-        Windows::Devices::Bluetooth::GenericAttributeProfile::GattPresentationFormat presentationFormat{ nullptr };
 
-        event_token notificationsToken;
+        event_token notificationsToken{};
 
-        Windows::Foundation::IAsyncOperation<bool> ClearBluetoothLEDeviceAsync();
+        Windows::Foundation::IAsyncAction ClearBluetoothLEDeviceAsync();
         void AddValueChangedHandler();
         void RemoveValueChangedHandler();
         void EnableCharacteristicPanels(Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristicProperties properties);
         Windows::Foundation::IAsyncOperation<bool> WriteBufferToSelectedCharacteristicAsync(Windows::Storage::Streams::IBuffer buffer);
-        hstring FormatValueByPresentation(Windows::Storage::Streams::IBuffer const& buffer, Windows::Devices::Bluetooth::GenericAttributeProfile::GattPresentationFormat const& format);
-        fire_and_forget Characteristic_ValueChanged(Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic const&, Windows::Devices::Bluetooth::GenericAttributeProfile::GattValueChangedEventArgs args);
+        hstring FormatValueByPresentation(
+            Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic const& characteristic,
+            Windows::Storage::Streams::IBuffer const& buffer);
+        fire_and_forget Characteristic_ValueChanged(Windows::Devices::Bluetooth::GenericAttributeProfile::GattCharacteristic const& sender, Windows::Devices::Bluetooth::GenericAttributeProfile::GattValueChangedEventArgs args);
+        static uint16_t ParseHeartRateValue(Windows::Storage::Streams::IBuffer const& buffer);
     };
 }
 

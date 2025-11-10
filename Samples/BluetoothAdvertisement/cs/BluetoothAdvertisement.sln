@@ -1,11 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.26228.4
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36221.1 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "bluetoothadvertisement", "bluetoothadvertisement.csproj", "{7160A490-7DAA-5ADE-9020-17D4276D30E7}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "tasks", "tasks\tasks.csproj", "{177F65A2-4662-51A3-9EB5-494BBF4AF15B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BluetoothAdvertisement", "BluetoothAdvertisement.csproj", "{7160A490-7DAA-5ADE-9020-17D4276D30E7}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -35,18 +33,6 @@ Global
 		{7160A490-7DAA-5ADE-9020-17D4276D30E7}.Release|x86.ActiveCfg = Release|x86
 		{7160A490-7DAA-5ADE-9020-17D4276D30E7}.Release|x86.Build.0 = Release|x86
 		{7160A490-7DAA-5ADE-9020-17D4276D30E7}.Release|x86.Deploy.0 = Release|x86
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Debug|ARM.ActiveCfg = Debug|ARM
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Debug|ARM.Build.0 = Debug|ARM
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Debug|x64.ActiveCfg = Debug|x64
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Debug|x64.Build.0 = Debug|x64
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Debug|x86.ActiveCfg = Debug|x86
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Debug|x86.Build.0 = Debug|x86
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Release|ARM.ActiveCfg = Release|ARM
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Release|ARM.Build.0 = Release|ARM
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Release|x64.ActiveCfg = Release|x64
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Release|x64.Build.0 = Release|x64
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Release|x86.ActiveCfg = Release|x86
-		{177F65A2-4662-51A3-9EB5-494BBF4AF15B}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

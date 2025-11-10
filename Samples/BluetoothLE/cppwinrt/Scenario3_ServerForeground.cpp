@@ -13,53 +13,19 @@
 #include "Scenario3_ServerForeground.h"
 #include "Scenario3_ServerForeground.g.cpp"
 #include "SampleConfiguration.h"
-#include "PresentationFormats.h"
 
 using namespace winrt;
 using namespace Windows::Devices::Bluetooth;
 using namespace Windows::Devices::Bluetooth::GenericAttributeProfile;
 using namespace Windows::Foundation;
 using namespace Windows::Foundation::Collections;
-using namespace Windows::Storage::Streams;
+using namespace Windows::UI::Core;
 using namespace Windows::UI::Xaml;
 using namespace Windows::UI::Xaml::Navigation;
 
-namespace winrt
-{
-    hstring to_hstring(BluetoothError error)
-    {
-        switch (error)
-        {
-        case BluetoothError::Success: return L"Success";
-        case BluetoothError::RadioNotAvailable: return L"RadioNotAvailable";
-        case BluetoothError::ResourceInUse: return L"ResourceInUse";
-        case BluetoothError::DeviceNotConnected: return L"DeviceNotConnected";
-        case BluetoothError::OtherError: return L"OtherError";
-        case BluetoothError::DisabledByPolicy: return L"DisabledByPolicy";
-        case BluetoothError::NotSupported: return L"NotSupported";
-        case BluetoothError::DisabledByUser: return L"DisabledByUser";
-        case BluetoothError::ConsentRequired: return L"ConsentRequired";
-        case BluetoothError::TransportNotSupported: return L"TransportNotSupported";
-        }
-        return L"Code " + to_hstring(static_cast<int>(error));
-    }
-
-    hstring to_hstring(GattServiceProviderAdvertisementStatus status)
-    {
-        switch (status)
-        {
-        case GattServiceProviderAdvertisementStatus::Created: return L"Created";
-        case GattServiceProviderAdvertisementStatus::Stopped: return L"Stopped";
-        case GattServiceProviderAdvertisementStatus::Started: return L"Started";
-        case GattServiceProviderAdvertisementStatus::Aborted: return L"Aborted";
-        }
-        return L"Code " + to_hstring(static_cast<int>(status));
-    }
-}
-
 namespace winrt::SDKTemplate::implementation
 {
-    // This scenario declares support for a calculator service. 
+    // This scenario declares support for a calculator service.
     // Remote clients (including this sample on another machine) can supply:
     // - Operands 1 and 2
     // - an operator (+,-,*,/)
@@ -69,31 +35,130 @@ namespace winrt::SDKTemplate::implementation
     Scenario3_ServerForeground::Scenario3_ServerForeground()
     {
         InitializeComponent();
+
+        ServiceIdRun().Text(to_hstring(Constants::CalculatorServiceUuid));
+
+        // BT_Code: IsDiscoverable determines whether a remote device can query the local device for support
+        // of this service.
+        advertisingParameters.IsDiscoverable(true);
     }
 
     fire_and_forget Scenario3_ServerForeground::OnNavigatedTo(NavigationEventArgs const&)
     {
+        navigatedTo = true;
+
         auto lifetime = get_strong();
-        peripheralSupported = co_await CheckPeripheralRoleSupportAsync();
-        if (peripheralSupported)
+
+        // BT_Code: New for Creator's Update - Bluetooth adapter has properties of the local BT radio.
+        BluetoothAdapter adapter = co_await BluetoothAdapter::GetDefaultAsync();
+
+        if (adapter != nullptr && adapter.IsPeripheralRoleSupported())
         {
+            // BT_Code: Specify that the server advertises as connectable.
+            // IsConnectable determines whether a call to publish will attempt to start advertising and
+            // put the service UUID in the ADV packet (best effort)
+            advertisingParameters.IsConnectable(true);
+
             ServerPanel().Visibility(Visibility::Visible);
         }
         else
         {
+            // No Bluetooth adapter or adapter cannot act as server.
             PeripheralWarning().Visibility(Visibility::Visible);
+        }
+
+        // Check whether the local Bluetooth adapter and Windows support 2M and Coded PHY.
+        if (!FeatureDetection::AreExtendedAdvertisingPhysAndScanParametersSupported())
+        {
+            Publishing2MPHYReasonRun().Text(L"(Not supported by this version of Windows)");
+        }
+        else if (adapter != nullptr && adapter.IsLowEnergyUncoded2MPhySupported())
+        {
+            Publishing2MPHY().IsEnabled(true);
+        }
+        else
+        {
+            Publishing2MPHYReasonRun().Text(L"(Not supported by default Bluetooth adapter)");
         }
     }
 
     void Scenario3_ServerForeground::OnNavigatedFrom(NavigationEventArgs const&)
     {
-        if (op1CharacteristicWriteToken)
+        navigatedTo = false;
+
+        UnsubscribeServiceEvents();
+        // Do not null out the characteristics because tasks may still be using them.
+
+        if (serviceProvider != nullptr)
         {
-            op1Characteristic.WriteRequested(std::exchange(op1CharacteristicWriteToken, {}));
+            if (serviceProvider.AdvertisementStatus() != GattServiceProviderAdvertisementStatus::Stopped)
+            {
+                serviceProvider.StopAdvertising();
+            }
+            serviceProvider = nullptr;
         }
-        if (op2CharacteristicWriteToken)
+    }
+
+    fire_and_forget Scenario3_ServerForeground::PublishButton_Click(IInspectable const&, RoutedEventArgs const&)
+    {
+        auto lifetime = get_strong();
+
+        if (serviceProvider == nullptr)
         {
-            op2Characteristic.WriteRequested(std::exchange(op2CharacteristicWriteToken, {}));
+            // Server not initialized yet - initialize it and start publishing
+            // Don't try to start if already starting.
+            if (startingService)
+            {
+                co_return;
+            }
+            PublishButton().Content(box_value(L"Starting..."));
+            startingService = true;
+            co_await CreateAndAdvertiseServiceAsync();
+            startingService = false;
+            if (serviceProvider != nullptr)
+            {
+                rootPage.NotifyUser(L"Service successfully started", NotifyType::StatusMessage);
+            }
+            else
+            {
+                UnsubscribeServiceEvents();
+                rootPage.NotifyUser(L"Service not started", NotifyType::ErrorMessage);
+            }
+        }
+        else
+        {
+            // BT_Code: Stops advertising support for custom GATT Service
+            UnsubscribeServiceEvents();
+            serviceProvider.StopAdvertising();
+            serviceProvider = nullptr;
+        }
+        PublishButton().Content(box_value(serviceProvider == nullptr ? L"Start Service": L"Stop Service"));
+
+    }
+
+    void Scenario3_ServerForeground::Publishing2MPHY_Click(IInspectable const&, RoutedEventArgs const&)
+    {
+        // Update the advertising parameters based on the checkbox.
+        bool shouldAdvertise2MPhy = Publishing2MPHY().IsChecked().Value();
+        advertisingParameters.UseLowEnergyUncoded1MPhyAsSecondaryPhy(!shouldAdvertise2MPhy);
+        advertisingParameters.UseLowEnergyUncoded2MPhyAsSecondaryPhy(shouldAdvertise2MPhy);
+
+        if (serviceProvider != nullptr)
+        {
+            // Reconfigure the advertising parameters on the fly.
+            serviceProvider.UpdateAdvertisingParameters(advertisingParameters);
+        }
+    }
+
+    void Scenario3_ServerForeground::UnsubscribeServiceEvents()
+    {
+        if (operand1CharacteristicWriteToken)
+        {
+            operand1Characteristic.WriteRequested(std::exchange(operand1CharacteristicWriteToken, {}));
+        }
+        if (operand2CharacteristicWriteToken)
+        {
+            operand2Characteristic.WriteRequested(std::exchange(operand2CharacteristicWriteToken, {}));
         }
         if (operatorCharacteristicWriteToken)
         {
@@ -111,204 +176,121 @@ namespace winrt::SDKTemplate::implementation
         {
             serviceProvider.AdvertisementStatusChanged(std::exchange(serviceProviderAdvertisementChangedToken, {}));
         }
-
-        if (serviceProvider != nullptr)
-        {
-            if (serviceProvider.AdvertisementStatus() != GattServiceProviderAdvertisementStatus::Stopped)
-            {
-                serviceProvider.StopAdvertising();
-            }
-            serviceProvider = nullptr;
-        }
     }
 
-    fire_and_forget Scenario3_ServerForeground::PublishButton_ClickAsync()
+    void Scenario3_ServerForeground::UpdateUI()
     {
-        auto lifetime = get_strong();
-
-        // Server not initialized yet - initialize it and start publishing
-        if (serviceProvider == nullptr)
-        {
-            bool serviceStarted = co_await ServiceProviderInitAsync();
-            if (serviceStarted)
-            {
-                rootPage.NotifyUser(L"Service successfully started", NotifyType::StatusMessage);
-                PublishButton().Content(box_value(L"Stop Service"));
-            }
-            else
-            {
-                rootPage.NotifyUser(L"Service not started", NotifyType::ErrorMessage);
-            }
-        }
-        else
-        {
-            // BT_Code: Stops advertising support for custom GATT Service 
-            serviceProvider.StopAdvertising();
-            serviceProvider = nullptr;
-            PublishButton().Content(box_value(L"Start Service"));
-        }
-    }
-
-    fire_and_forget Scenario3_ServerForeground::UpdateUX()
-    {
-        auto lifetime = get_strong();
-        co_await resume_foreground(Dispatcher());
-
-        switch (operatorReceived)
+        const wchar_t* operationText = L"N/A";
+        switch (operatorValue)
         {
         case CalculatorOperators::Add:
-            OperationText().Text(L"+");
+            operationText = L"+";
             break;
         case CalculatorOperators::Subtract:
-            OperationText().Text(L"-");
+            operationText = L"\u2212"; // Minus sign
             break;
         case CalculatorOperators::Multiply:
-            OperationText().Text(L"*");
+            operationText = L"\u00d7"; // Multiplication sign
             break;
         case CalculatorOperators::Divide:
-            OperationText().Text(L"/");
-            break;
-        default:
-            OperationText().Text(L"INV");
+            operationText = L"\u00f7"; // Division sign
             break;
         }
-        Operand1Text().Text(to_hstring(operand1Received));
-        Operand2Text().Text(to_hstring(operand2Received));
-        resultVal = ComputeResult();
-        ResultText().Text(to_hstring(resultVal));
+        OperationTextBox().Text(operationText);
+        Operand1TextBox().Text(to_hstring(operand1Value));
+        Operand2TextBox().Text(to_hstring(operand2Value));
+        ResultTextBox().Text(to_hstring(resultValue));
     }
 #pragma endregion
-
-    IAsyncOperation<bool> Scenario3_ServerForeground::CheckPeripheralRoleSupportAsync()
-    {
-        // BT_Code: New for Creator's Update - Bluetooth adapter has properties of the local BT radio.
-        auto localAdapter = co_await BluetoothAdapter::GetDefaultAsync();
-
-        if (localAdapter != nullptr)
-        {
-            co_return localAdapter.IsPeripheralRoleSupported();
-        }
-        else
-        {
-            // Bluetooth is not turned on 
-            co_return false;
-        }
-    }
 
     /// <summary>
     /// Uses the relevant Service/Characteristic UUIDs to initialize, hook up event handlers and start a service on the local system.
     /// </summary>
     /// <returns></returns>
-    IAsyncOperation<bool> Scenario3_ServerForeground::ServiceProviderInitAsync()
+    IAsyncAction Scenario3_ServerForeground::CreateAndAdvertiseServiceAsync()
     {
         // BT_Code: Initialize and starting a custom GATT Service using GattServiceProvider.
         auto lifetime = get_strong();
 
-        GattServiceProviderResult serviceResult = co_await GattServiceProvider::CreateAsync(Constants::CalcServiceUuid);
-        if (serviceResult.Error() == BluetoothError::Success)
-        {
-            serviceProvider = serviceResult.ServiceProvider();
-        }
-        else
+        GattServiceProviderResult serviceResult = co_await GattServiceProvider::CreateAsync(Constants::CalculatorServiceUuid);
+        if (serviceResult.Error() != BluetoothError::Success)
         {
             rootPage.NotifyUser(L"Could not create service provider: " + to_hstring(serviceResult.Error()), NotifyType::ErrorMessage);
-            co_return false;
+            co_return;
         }
+        GattServiceProvider provider = serviceResult.ServiceProvider();
 
-        // BT_Code: Initializes custom local parameters w/ properties, protection levels as well as common descriptors like User Description. 
-        GattLocalCharacteristicParameters gattOperandParameters;
-        gattOperandParameters.CharacteristicProperties(GattCharacteristicProperties::Write | GattCharacteristicProperties::WriteWithoutResponse);
-        gattOperandParameters.WriteProtectionLevel(GattProtectionLevel::Plain);
-        gattOperandParameters.UserDescription(L"Operand Characteristic");
-
-        GattLocalCharacteristicResult result = co_await serviceProvider.Service().CreateCharacteristicAsync(Constants::Op1CharacteristicUuid, gattOperandParameters);
-        if (result.Error() == BluetoothError::Success)
-        {
-            op1Characteristic = result.Characteristic();
-        }
-        else
+        // BT_Code: Initializes custom local parameters w/ properties, protection levels as well as common descriptors like User Description.
+        GattLocalCharacteristicResult result = co_await provider.Service().CreateCharacteristicAsync(
+            Constants::Operand1CharacteristicUuid, Constants::gattOperand1Parameters());
+        if (result.Error() != BluetoothError::Success)
         {
             rootPage.NotifyUser(L"Could not create operand1 characteristic: " + to_hstring(result.Error()), NotifyType::ErrorMessage);
-            co_return false;
+            co_return;
         }
-        op1CharacteristicWriteToken = op1Characteristic.WriteRequested({ get_weak(), &Scenario3_ServerForeground::Op1Characteristic_WriteRequestedAsync });
+
+        operand1Characteristic = result.Characteristic();
+        operand1CharacteristicWriteToken = operand1Characteristic.WriteRequested(
+            { get_weak(), &Scenario3_ServerForeground::Op1Characteristic_WriteRequestedAsync });
 
         // Create the second operand characteristic.
-        result = co_await serviceProvider.Service().CreateCharacteristicAsync(Constants::Op2CharacteristicUuid, gattOperandParameters);
-        if (result.Error() == BluetoothError::Success)
-        {
-            op2Characteristic = result.Characteristic();
-        }
-        else
+        result = co_await provider.Service().CreateCharacteristicAsync(
+            Constants::Operand2CharacteristicUuid, Constants::gattOperand2Parameters());
+        if (result.Error() != BluetoothError::Success)
         {
             rootPage.NotifyUser(L"Could not create operand2 characteristic: " + to_hstring(result.Error()), NotifyType::ErrorMessage);
-            co_return false;
+            co_return;
         }
-
-        op2CharacteristicWriteToken = op2Characteristic.WriteRequested({ get_weak(), &Scenario3_ServerForeground::Op2Characteristic_WriteRequestedAsync });
+        operand2Characteristic = result.Characteristic();
+        operand2CharacteristicWriteToken = operand2Characteristic.WriteRequested(
+            { get_weak(), &Scenario3_ServerForeground::Op2Characteristic_WriteRequestedAsync });
 
         // Create the operator characteristic.
-        GattLocalCharacteristicParameters gattOperatorParameters;
-        gattOperandParameters.CharacteristicProperties(GattCharacteristicProperties::Write | GattCharacteristicProperties::WriteWithoutResponse);
-        gattOperandParameters.WriteProtectionLevel(GattProtectionLevel::Plain);
-        gattOperandParameters.UserDescription(L"Operator Characteristic");
-
-        result = co_await serviceProvider.Service().CreateCharacteristicAsync(Constants::OperatorCharacteristicUuid, gattOperatorParameters);
-        if (result.Error() == BluetoothError::Success)
-        {
-            operatorCharacteristic = result.Characteristic();
-        }
-        else
+        result = co_await provider.Service().CreateCharacteristicAsync(
+            Constants::OperatorCharacteristicUuid, Constants::gattOperatorParameters());
+        if (result.Error() != BluetoothError::Success)
         {
             rootPage.NotifyUser(L"Could not create operator characteristic: " + to_hstring(result.Error()), NotifyType::ErrorMessage);
-            co_return false;
+            co_return;
         }
-
-        operatorCharacteristicWriteToken = operatorCharacteristic.WriteRequested({ get_weak(), &Scenario3_ServerForeground::OperatorCharacteristic_WriteRequestedAsync });
+        operatorCharacteristic = result.Characteristic();
+        operatorCharacteristicWriteToken = operatorCharacteristic.WriteRequested(
+            { get_weak(), &Scenario3_ServerForeground::OperatorCharacteristic_WriteRequestedAsync });
 
         // Create the result characteristic.
-        GattLocalCharacteristicParameters gattResultParameters;
-        gattResultParameters.CharacteristicProperties(GattCharacteristicProperties::Read | GattCharacteristicProperties::Notify);
-        gattResultParameters.WriteProtectionLevel(GattProtectionLevel::Plain);
-        gattResultParameters.UserDescription(L"Result  Characteristic");
-
-        // Add presentation format - 32-bit unsigned integer, with exponent 0, the unit is unitless, with no company description
-        GattPresentationFormat intFormat = GattPresentationFormat::FromParts(
-            GattPresentationFormatTypes::UInt32(),
-            PresentationFormats::Exponent,
-            static_cast<uint16_t>(PresentationFormats::Units::Unitless),
-            static_cast<uint8_t>(PresentationFormats::NamespaceId::BluetoothSigAssignedNumber),
-            PresentationFormats::Description);
-
-        gattResultParameters.PresentationFormats().Append(intFormat);
-
-        result = co_await serviceProvider.Service().CreateCharacteristicAsync(Constants::ResultCharacteristicUuid, gattResultParameters);
-        if (result.Error() == BluetoothError::Success)
-        {
-            resultCharacteristic = result.Characteristic();
-        }
-        else
+        result = co_await provider.Service().CreateCharacteristicAsync(
+            Constants::ResultCharacteristicUuid, Constants::gattResultParameters());
+        if (result.Error() != BluetoothError::Success)
         {
             rootPage.NotifyUser(L"Could not create result characteristic: " + to_hstring(result.Error()), NotifyType::ErrorMessage);
-            co_return false;
+            co_return;
         }
-        resultCharacteristicReadToken = resultCharacteristic.ReadRequested({ get_weak(), &Scenario3_ServerForeground::ResultCharacteristic_ReadRequestedAsync });
-        resultCharacteristicClientsChangedToken = resultCharacteristic.SubscribedClientsChanged({ get_weak(), &Scenario3_ServerForeground::ResultCharacteristic_SubscribedClientsChanged });
+        resultCharacteristic = result.Characteristic();
+        resultCharacteristicReadToken = resultCharacteristic.ReadRequested(
+            { get_weak(), &Scenario3_ServerForeground::ResultCharacteristic_ReadRequestedAsync });
 
-        // BT_Code: Indicate if your sever advertises as connectable and discoverable.
-        GattServiceProviderAdvertisingParameters advParameters;
+        resultCharacteristicClientsChangedToken = resultCharacteristic.SubscribedClientsChanged(
+            { get_weak(), &Scenario3_ServerForeground::ResultCharacteristic_SubscribedClientsChanged });
 
-        // IsConnectable determines whether a call to publish will attempt to start advertising and 
-        // put the service UUID in the ADV packet (best effort)
-        advParameters.IsConnectable(peripheralSupported);
+        // The advertising parameters were updated at various points in this class.
+        // IsDiscoverable was set in the class constructor.
+        // IsConnectable was set in OnNavigatedTo when we confirmed that the device supports peripheral role.
+        // UseLowEnergyUncoded1MPhy/2MPhyAsSecondaryPhy was set when the user toggled the Publishing2MPHY button.
 
-        // IsDiscoverable determines whether a remote device can query the local device for support 
-        // of this service
-        advParameters.IsDiscoverable(true);
+        // Last chance: Did the user navigate away while we were doing all this work?
+        // If so, then abandon our work without starting the provider.
+        // Must do this after the last await. (Could also do it after earlier awaits.)
+        if (!navigatedTo)
+        {
+            co_return;
+        }
 
-        serviceProviderAdvertisementChangedToken = serviceProvider.AdvertisementStatusChanged({ get_weak(), &Scenario3_ServerForeground::ServiceProvider_AdvertisementStatusChanged });
-        serviceProvider.StartAdvertising(advParameters);
-        co_return true;
+        serviceProviderAdvertisementChangedToken = provider.AdvertisementStatusChanged(
+            { get_weak(), &Scenario3_ServerForeground::ServiceProvider_AdvertisementStatusChanged });
+        provider.StartAdvertising(advertisingParameters);
+
+        // Let the other methods know that we have a provider that is advertising.
+        serviceProvider = provider;
     }
 
     void Scenario3_ServerForeground::ResultCharacteristic_SubscribedClientsChanged(GattLocalCharacteristic const& sender, IInspectable const&)
@@ -328,11 +310,11 @@ namespace winrt::SDKTemplate::implementation
 
     fire_and_forget Scenario3_ServerForeground::ResultCharacteristic_ReadRequestedAsync(GattLocalCharacteristic const&, GattReadRequestedEventArgs args)
     {
-        // BT_Code: Process a read request. 
+        // BT_Code: Process a read request.
         auto lifetime = get_strong();
-        auto deferral = args.GetDeferral();
+        auto completer = DeferralCompleter(args.GetDeferral());
 
-        // Get the request information.  This requires device access before an app can access the device's request. 
+        // Get the request information.  This requires device access before an app can access the device's request.
         GattReadRequest request = co_await args.GetRequestAsync();
         if (request == nullptr)
         {
@@ -341,10 +323,6 @@ namespace winrt::SDKTemplate::implementation
         }
         else
         {
-            DataWriter writer;
-            writer.ByteOrder(ByteOrder::LittleEndian);
-            writer.WriteInt32(resultVal);
-
             // Can get details about the request such as the size and offset, as well as monitor the state to see if it has been completed/cancelled externally.
             // request.Offset
             // request.Length
@@ -352,56 +330,49 @@ namespace winrt::SDKTemplate::implementation
             // request.StateChanged += <Handler>
 
             // Gatt code to handle the response
-            request.RespondWithValue(writer.DetachBuffer());
+            request.RespondWithValue(BufferHelpers::ToBuffer(resultValue));
         }
-
-        deferral.Complete();
     }
 
-    int Scenario3_ServerForeground::ComputeResult()
+    void Scenario3_ServerForeground::ComputeResult()
     {
-        int computedValue = 0;
-        switch (operatorReceived)
+        switch (operatorValue)
         {
         case CalculatorOperators::Add:
-            computedValue = operand1Received + operand2Received;
+            resultValue = operand1Value + operand2Value;
             break;
         case CalculatorOperators::Subtract:
-            computedValue = operand1Received - operand2Received;
+            resultValue = operand1Value - operand2Value;
             break;
         case CalculatorOperators::Multiply:
-            computedValue = operand1Received * operand2Received;
+            resultValue = operand1Value * operand2Value;
             break;
         case CalculatorOperators::Divide:
-            if (operand2Received == 0 || (operand1Received == std::numeric_limits<int>::min() && operand2Received == -1))
+            if (operand2Value == 0 || (operand1Value == std::numeric_limits<int>::min() && operand2Value == -1))
             {
                 rootPage.NotifyUser(L"Division overflow", NotifyType::ErrorMessage);
             }
             else
             {
-                computedValue = operand1Received / operand2Received;
+                resultValue = operand1Value / operand2Value;
             }
             break;
         default:
             rootPage.NotifyUser(L"Invalid Operator", NotifyType::ErrorMessage);
             break;
         }
-        NotifyClientDevices(computedValue);
-        return computedValue;
+        NotifyClientDevices(resultValue);
     }
 
     fire_and_forget Scenario3_ServerForeground::NotifyClientDevices(int computedValue)
     {
         auto lifetime = get_strong();
-        DataWriter writer;
-        writer.ByteOrder(ByteOrder::LittleEndian);
-        writer.WriteInt32(computedValue);
 
         // BT_Code: Returns a collection of all clients that the notification was attempted and the result.
-        IVectorView<GattClientNotificationResult> results = co_await resultCharacteristic.NotifyValueAsync(writer.DetachBuffer());
+        IVectorView<GattClientNotificationResult> results = co_await resultCharacteristic.NotifyValueAsync(BufferHelpers::ToBuffer(computedValue));
 
         rootPage.NotifyUser(L"Sent value " + to_hstring(computedValue) + L" to clients.", NotifyType::StatusMessage);
-        for (GattClientNotificationResult&& result : results)
+        for (GattClientNotificationResult result : results)
         {
             // An application can iterate through each registered client that was notified and retrieve the results:
             //
@@ -415,7 +386,7 @@ namespace winrt::SDKTemplate::implementation
     {
         // BT_Code: Processing a write request.
         auto lifetime = get_strong();
-        auto deferral = args.GetDeferral();
+        auto completer = DeferralCompleter(args.GetDeferral());
 
         // Get the request information.  This requires device access before an app can access the device's request.
         GattWriteRequest request = co_await args.GetRequestAsync();
@@ -427,13 +398,12 @@ namespace winrt::SDKTemplate::implementation
         {
             ProcessWriteCharacteristic(request, CalculatorCharacteristics::Operand1);
         }
-        deferral.Complete();
     }
 
     fire_and_forget Scenario3_ServerForeground::Op2Characteristic_WriteRequestedAsync(GattLocalCharacteristic const&, GattWriteRequestedEventArgs args)
     {
         auto lifetime = get_strong();
-        auto deferral = args.GetDeferral();
+        auto completer = DeferralCompleter(args.GetDeferral());
 
         // Get the request information.  This requires device access before an app can access the device's request.
         GattWriteRequest request = co_await args.GetRequestAsync();
@@ -445,13 +415,12 @@ namespace winrt::SDKTemplate::implementation
         {
             ProcessWriteCharacteristic(request, CalculatorCharacteristics::Operand2);
         }
-        deferral.Complete();
     }
 
     fire_and_forget Scenario3_ServerForeground::OperatorCharacteristic_WriteRequestedAsync(GattLocalCharacteristic const&, GattWriteRequestedEventArgs args)
     {
         auto lifetime = get_strong();
-        auto deferral = args.GetDeferral();
+        auto completer = DeferralCompleter(args.GetDeferral());
 
         // Get the request information.  This requires device access before an app can access the device's request.
         GattWriteRequest request = co_await args.GetRequestAsync();
@@ -463,43 +432,41 @@ namespace winrt::SDKTemplate::implementation
         {
             ProcessWriteCharacteristic(request, CalculatorCharacteristics::Operator);
         }
-        deferral.Complete();
     }
 
-    void Scenario3_ServerForeground::ProcessWriteCharacteristic(GattWriteRequest const& request, CalculatorCharacteristics opCode)
+    fire_and_forget Scenario3_ServerForeground::ProcessWriteCharacteristic(GattWriteRequest const& request, CalculatorCharacteristics opCode)
     {
-        if (request.Value().Length() != 4)
+        auto lifetime = get_strong();
+
+        std::optional<int> value = BufferHelpers::FromBuffer<int>(request.Value());
+        if (!value)
         {
             // Input is the wrong length. Respond with a protocol error if requested.
             if (request.Option() == GattWriteOption::WriteWithResponse)
             {
                 request.RespondWithProtocolError(GattProtocolError::InvalidAttributeValueLength());
             }
-            return;
+            co_return;
         }
-
-        DataReader reader = DataReader::FromBuffer(request.Value());
-        reader.ByteOrder(ByteOrder::LittleEndian);
-        int val = reader.ReadInt32();
 
         switch (opCode)
         {
         case CalculatorCharacteristics::Operand1:
-            operand1Received = val;
+            operand1Value = *value;
             break;
         case CalculatorCharacteristics::Operand2:
-            operand2Received = val;
+            operand2Value = *value;
             break;
         case CalculatorCharacteristics::Operator:
-            if (!IsValidOperator(static_cast<CalculatorOperators>(val)))
+            if (!IsValidOperator(static_cast<CalculatorOperators>(*value)))
             {
                 if (request.Option() == GattWriteOption::WriteWithResponse)
                 {
                     request.RespondWithProtocolError(GattProtocolError::InvalidPdu());
                 }
-                return;
+                co_return;
             }
-            operatorReceived = static_cast<CalculatorOperators>(val);
+            operatorValue = static_cast<CalculatorOperators>(*value);
             break;
         }
         // Complete the request if needed
@@ -508,6 +475,9 @@ namespace winrt::SDKTemplate::implementation
             request.Respond();
         }
 
-        UpdateUX();
+        ComputeResult();
+
+        co_await winrt::resume_foreground(Dispatcher());
+        UpdateUI();
     }
 }

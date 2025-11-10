@@ -1,3 +1,4 @@
+using System.Resources;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -10,7 +11,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Microsoft Corporation")]
 [assembly: AssemblyProduct("Windows Samples")]
-[assembly: AssemblyCopyright("Copyright © Microsoft Corporation")]
+[assembly: AssemblyCopyright("Copyright Â© Microsoft Corporation")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

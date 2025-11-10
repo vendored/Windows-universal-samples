@@ -43,7 +43,7 @@ namespace winrt::SDKTemplate::implementation
             return m_deviceInformation.Properties();
         }
 
-        Windows::UI::Xaml::Media::Imaging::BitmapImage GlyphBitmapImage() 
+        Windows::UI::Xaml::Media::Imaging::BitmapImage GlyphBitmapImage()
         {
             return m_glyphBitmapImage;
         }

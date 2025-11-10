@@ -40,7 +40,7 @@ namespace
     {
         wchar_t* end;
         errno = 0;
-        result = std::wcstol(str, &end, 0);
+        long converted = std::wcstol(str, &end, 0);
 
         if (str == end)
         {
@@ -48,7 +48,7 @@ namespace
             return false;
         }
 
-        if (errno == ERANGE || result < INT_MIN || INT_MAX < result)
+        if (errno == ERANGE || converted < INT_MIN || INT_MAX < converted)
         {
             // Out of range.
             return false;
@@ -60,56 +60,10 @@ namespace
             return false;
         }
 
+        result = static_cast<int32_t>(converted);
         return true;
     }
 
-    template<typename T>
-    T Read(DataReader const& reader);
-
-    template<>
-    uint32_t Read<uint32_t>(DataReader const& reader)
-    {
-        return reader.ReadUInt32();
-    }
-
-    template<>
-    int32_t Read<int32_t>(DataReader const& reader)
-    {
-        return reader.ReadInt32();
-    }
-
-    template<>
-    uint8_t Read<uint8_t>(DataReader const& reader)
-    {
-        return reader.ReadByte();
-    }
-
-    template<typename T>
-    bool TryExtract(IBuffer const& buffer, T& result)
-    {
-        if (buffer.Length() >= sizeof(T))
-        {
-            DataReader reader = DataReader::FromBuffer(buffer);
-            result = Read<T>(reader);
-            return true;
-        }
-        return false;
-    }
-}
-
-namespace winrt
-{
-    hstring to_hstring(GattCommunicationStatus status)
-    {
-        switch (status)
-        {
-        case GattCommunicationStatus::Success: return L"Success";
-        case GattCommunicationStatus::Unreachable: return L"Unreachable";
-        case GattCommunicationStatus::ProtocolError: return L"ProtocolError";
-        case GattCommunicationStatus::AccessDenied: return L"AccessDenied";
-        }
-        return to_hstring(static_cast<int>(status));
-    }
 }
 
 namespace winrt::SDKTemplate::implementation
@@ -132,81 +86,68 @@ namespace winrt::SDKTemplate::implementation
     fire_and_forget Scenario2_Client::OnNavigatedFrom(NavigationEventArgs const&)
     {
         auto lifetime = get_strong();
-        if (!co_await ClearBluetoothLEDeviceAsync())
-        {
-            rootPage.NotifyUser(L"Error: Unable to reset app state", NotifyType::ErrorMessage);
-        }
+        co_await ClearBluetoothLEDeviceAsync();
     }
 #pragma endregion
 
 #pragma region Enumerating Services
-    IAsyncOperation<bool> Scenario2_Client::ClearBluetoothLEDeviceAsync()
+    IAsyncAction Scenario2_Client::ClearBluetoothLEDeviceAsync()
     {
         auto lifetime = get_strong();
 
-        if (notificationsToken)
+        // Capture the characteristic we want to unregister, in case the user changes it during the await.
+        GattCharacteristic characteristic = std::exchange(registeredCharacteristic, nullptr);
+        event_token token = std::exchange(notificationsToken, {});
+
+        if (characteristic)
         {
-            // Need to clear the CCCD from the remote device so we stop receiving notifications
-            GattCommunicationStatus result = co_await registeredCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue::None);
+            // Clear the CCCD from the remote device so we stop receiving notifications
+            GattCommunicationStatus result = co_await characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue::None);
             if (result != GattCommunicationStatus::Success)
             {
-                co_return false;
+                // Even if we are unable to unsubscribe, continue with the rest of the cleanup.
+                rootPage.NotifyUser(L"Error: Unable to unsubscribe from notifications.", NotifyType::ErrorMessage);
             }
             else
             {
-                selectedCharacteristic.ValueChanged(std::exchange(notificationsToken, {}));
+                characteristic.ValueChanged(token);
             }
         }
 
-        if (bluetoothLeDevice != nullptr)
+        if (bluetoothLEDevice != nullptr)
         {
-            bluetoothLeDevice.Close();
-            bluetoothLeDevice = nullptr;
+            bluetoothLEDevice.Close();
+            bluetoothLEDevice = nullptr;
         }
-        co_return true;
     }
 
-    fire_and_forget Scenario2_Client::ConnectButton_Click()
+    fire_and_forget Scenario2_Client::ConnectButton_Click(IInspectable const&, RoutedEventArgs const&)
     {
         auto lifetime = get_strong();
 
         ConnectButton().IsEnabled(false);
 
-        if (!co_await ClearBluetoothLEDeviceAsync())
-        {
-            rootPage.NotifyUser(L"Error: Unable to reset state, try again.", NotifyType::ErrorMessage);
-            ConnectButton().IsEnabled(true);
-            co_return;
-        }
+        co_await ClearBluetoothLEDeviceAsync();
 
-        try
-        {
-            // BT_Code: BluetoothLEDevice.FromIdAsync must be called from a UI thread because it may prompt for consent.
-            bluetoothLeDevice = co_await BluetoothLEDevice::FromIdAsync(SampleState::SelectedBleDeviceId);
+        // BT_Code: BluetoothLEDevice.FromIdAsync must be called from a UI thread because it may prompt for consent.
+        bluetoothLEDevice = co_await BluetoothLEDevice::FromIdAsync(SampleState::SelectedBleDeviceId);
 
-            if (bluetoothLeDevice == nullptr)
-            {
-                rootPage.NotifyUser(L"Failed to connect to device.", NotifyType::ErrorMessage);
-            }
-        }
-        catch (hresult_error& ex)
-        {
-            if (ex.to_abi() == HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE))
-            {
-                rootPage.NotifyUser(L"Bluetooth radio is not on.", NotifyType::ErrorMessage);
-            }
-            else
-            {
-                throw;
-            }
-        }
-
-        if (bluetoothLeDevice != nullptr)
+        if (bluetoothLEDevice != nullptr)
         {
             // Note: BluetoothLEDevice.GattServices property will return an empty list for unpaired devices. For all uses we recommend using the GetGattServicesAsync method.
             // BT_Code: GetGattServicesAsync returns a list of all the supported services of the device (even if it's not paired to the system).
             // If the services supported by the device are expected to change during BT usage, subscribe to the GattServicesChanged event.
-            GattDeviceServicesResult result = co_await bluetoothLeDevice.GetGattServicesAsync(BluetoothCacheMode::Uncached);
+            GattDeviceServicesResult result{ nullptr };
+            try
+            {
+                result = co_await bluetoothLEDevice.GetGattServicesAsync(BluetoothCacheMode::Uncached);
+            }
+            catch (hresult_canceled const&)
+            {
+                // The bluetoothLeDevice was disposed by OnNavigatedFrom while GetGattServicesAsync was running.
+                ConnectButton().IsEnabled(true);
+                co_return;
+            }
 
             if (result.Status() == GattCommunicationStatus::Success)
             {
@@ -224,63 +165,69 @@ namespace winrt::SDKTemplate::implementation
             }
             else
             {
-                rootPage.NotifyUser(L"Device unreachable", NotifyType::ErrorMessage);
+                rootPage.NotifyUser(L"Error: " + Utilities::FormatGattCommunicationStatus(result.Status(), result.ProtocolError()), NotifyType::ErrorMessage);
             }
         }
+        else
+        {
+            rootPage.NotifyUser(L"Unable to find device. Maybe it isn't connected any more.", NotifyType::ErrorMessage);
+        }
+
         ConnectButton().IsEnabled(true);
     }
 
 #pragma region Enumerating Characteristics
-    fire_and_forget Scenario2_Client::ServiceList_SelectionChanged()
+    fire_and_forget Scenario2_Client::ServiceList_SelectionChanged(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e)
     {
         auto lifetime = get_strong();
+
+        CharacteristicList().Items().Clear();
+        CharacteristicList().Visibility(Visibility::Collapsed);
+        RemoveValueChangedHandler();
 
         auto selectedItem = ServiceList().SelectedItem().as<ComboBoxItem>();
         GattDeviceService service = selectedItem ? selectedItem.Tag().as<GattDeviceService>() : nullptr;
 
-        CharacteristicList().Items().Clear();
-        RemoveValueChangedHandler();
+        if (service == nullptr)
+        {
+            rootPage.NotifyUser(L"No service selected", NotifyType::ErrorMessage);
+            co_return;
+        }
 
         IVectorView<GattCharacteristic> characteristics{ nullptr };
         try
         {
             // Ensure we have access to the device.
             auto accessStatus = co_await service.RequestAccessAsync();
-            if (accessStatus == DeviceAccessStatus::Allowed)
-            {
-                // BT_Code: Get all the child characteristics of a service. Use the cache mode to specify uncached characterstics only 
-                // and the new Async functions to get the characteristics of unpaired devices as well. 
-                GattCharacteristicsResult result = co_await service.GetCharacteristicsAsync(BluetoothCacheMode::Uncached);
-                if (result.Status() == GattCommunicationStatus::Success)
-                {
-                    characteristics = result.Characteristics();
-                }
-                else
-                {
-                    rootPage.NotifyUser(L"Error accessing service.", NotifyType::ErrorMessage);
-                }
-            }
-            else
+            if (accessStatus != DeviceAccessStatus::Allowed)
             {
                 // Not granted access
                 rootPage.NotifyUser(L"Error accessing service.", NotifyType::ErrorMessage);
-
+                co_return;
             }
-        }
-        catch (hresult_error& ex)
-        {
-            rootPage.NotifyUser(L"Restricted service. Can't read characteristics: " + ex.message(), NotifyType::ErrorMessage);
-        }
 
-        if (characteristics)
-        {
-            for (GattCharacteristic&& c : characteristics)
+            // BT_Code: Get all the child characteristics of a service. Use the cache mode to specify uncached characterstics only
+            // and the new Async functions to get the characteristics of unpaired devices as well.
+            GattCharacteristicsResult result = co_await service.GetCharacteristicsAsync(BluetoothCacheMode::Uncached);
+            if (result.Status() != GattCommunicationStatus::Success)
             {
-                ComboBoxItem item;
-                item.Content(box_value(DisplayHelpers::GetCharacteristicName(c)));
-                item.Tag(c);
-                CharacteristicList().Items().Append(item);
+                rootPage.NotifyUser(L"Error accessing service: " + Utilities::FormatGattCommunicationStatus(result.Status(), result.ProtocolError()), NotifyType::ErrorMessage);
+                co_return;
             }
+            characteristics = result.Characteristics();
+        }
+        catch (...)
+        {
+            rootPage.NotifyUser(L"Restricted service. Can't read characteristics: " + to_message(), NotifyType::ErrorMessage);
+            co_return;
+        }
+
+        for (GattCharacteristic&& c : characteristics)
+        {
+            ComboBoxItem item;
+            item.Content(box_value(DisplayHelpers::GetCharacteristicName(c)));
+            item.Tag(c);
+            CharacteristicList().Items().Append(item);
         }
         CharacteristicList().Visibility(Visibility::Visible);
     }
@@ -305,7 +252,7 @@ namespace winrt::SDKTemplate::implementation
         }
     }
 
-    fire_and_forget Scenario2_Client::CharacteristicList_SelectionChanged()
+    fire_and_forget Scenario2_Client::CharacteristicList_SelectionChanged(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e)
     {
         auto lifetime = get_strong();
 
@@ -319,29 +266,12 @@ namespace winrt::SDKTemplate::implementation
             co_return;
         }
 
-        // Get all the child descriptors of a characteristics. Use the cache mode to specify uncached descriptors only 
-        // and the new Async functions to get the descriptors of unpaired devices as well. 
+        // Get all the child descriptors of a characteristics. Use the cache mode to specify uncached descriptors only
+        // and the new Async functions to get the descriptors of unpaired devices as well.
         GattDescriptorsResult result = co_await selectedCharacteristic.GetDescriptorsAsync(BluetoothCacheMode::Uncached);
         if (result.Status() != GattCommunicationStatus::Success)
         {
-            rootPage.NotifyUser(L"Descriptor read failure: " + to_hstring(result.Status()), NotifyType::ErrorMessage);
-        }
-
-        // BT_Code: There's no need to access presentation format unless there's at least one. 
-        presentationFormat = nullptr;
-        if (selectedCharacteristic.PresentationFormats().Size() > 0)
-        {
-
-            if (selectedCharacteristic.PresentationFormats().Size() == 1)
-            {
-                // Get the presentation format since there's only one way of presenting it
-                presentationFormat = selectedCharacteristic.PresentationFormats().GetAt(0);
-            }
-            else
-            {
-                // It's difficult to figure out how to split up a characteristic and encode its different parts properly.
-                // In this case, we'll just encode the whole thing to a string to make it easy to print out.
-            }
+            rootPage.NotifyUser(L"Descriptor read failure: " + Utilities::FormatGattCommunicationStatus(result.Status(), result.ProtocolError()), NotifyType::ErrorMessage);
         }
 
         // Enable/disable operations based on the GattCharacteristicProperties.
@@ -351,8 +281,7 @@ namespace winrt::SDKTemplate::implementation
     void Scenario2_Client::EnableCharacteristicPanels(GattCharacteristicProperties properties)
     {
         // BT_Code: Hide the controls which do not apply to this characteristic.
-        SetVisibility(CharacteristicReadButton(),
-            (properties & GattCharacteristicProperties::Read) != GattCharacteristicProperties::None);
+        SetVisibility(CharacteristicReadButton(), (properties & GattCharacteristicProperties::Read) != GattCharacteristicProperties::None);
 
         SetVisibility(CharacteristicWritePanel(),
             (properties & (GattCharacteristicProperties::Write | GattCharacteristicProperties::WriteWithoutResponse)) != GattCharacteristicProperties::None);
@@ -360,33 +289,57 @@ namespace winrt::SDKTemplate::implementation
 
         SetVisibility(ValueChangedSubscribeToggle(),
             (properties & (GattCharacteristicProperties::Indicate | GattCharacteristicProperties::Notify)) != GattCharacteristicProperties::None);
+
+        ValueChangedSubscribeToggle().IsEnabled((registeredCharacteristic == nullptr) || (registeredCharacteristic == selectedCharacteristic));
     }
 
-    fire_and_forget Scenario2_Client::CharacteristicReadButton_Click()
+    fire_and_forget Scenario2_Client::CharacteristicReadButton_Click(IInspectable const&, RoutedEventArgs const&)
     {
         auto lifetime = get_strong();
 
+        // Capture the characteristic we are reading from, in case the use changes the selection during the await.
+        GattCharacteristic characteristic = selectedCharacteristic;
+
         // BT_Code: Read the actual value from the device by using Uncached.
-        GattReadResult result = co_await selectedCharacteristic.ReadValueAsync(BluetoothCacheMode::Uncached);
-        if (result.Status() == GattCommunicationStatus::Success)
+        try
         {
-            rootPage.NotifyUser(L"Read result: " + FormatValueByPresentation(result.Value(), presentationFormat), NotifyType::StatusMessage);
+            GattReadResult result = co_await selectedCharacteristic.ReadValueAsync(BluetoothCacheMode::Uncached);
+            if (result.Status() == GattCommunicationStatus::Success)
+            {
+                rootPage.NotifyUser(L"Read result: " + FormatValueByPresentation(characteristic, result.Value()), NotifyType::StatusMessage);
+            }
+            else
+            {
+                // This can happen when a device reports that it supports reading, but it actually doesn't.
+                rootPage.NotifyUser(L"Read failed: " + Utilities::FormatGattCommunicationStatus(result.Status(), result.ProtocolError()), NotifyType::ErrorMessage);
+            }
         }
-        else
+        catch (hresult_error const& ex)
         {
-            rootPage.NotifyUser(L"Read failed: Status = " + to_hstring(result.Status()), NotifyType::ErrorMessage);
+            if (ex.code() == RO_E_CLOSED)
+            {
+                // Server is no longer available.
+                rootPage.NotifyUser(L"Read failed: Service is no longer available.", NotifyType::ErrorMessage);
+            }
+            else
+            {
+                throw;
+            }
         }
     }
 
-    fire_and_forget Scenario2_Client::CharacteristicWriteButton_Click()
+    fire_and_forget Scenario2_Client::CharacteristicWriteButton_Click(IInspectable const&, RoutedEventArgs const&)
     {
         auto lifetime = get_strong();
 
         hstring text = CharacteristicWriteValue().Text();
         if (!text.empty())
         {
-            IBuffer writeBuffer = CryptographicBuffer::ConvertStringToBinary(CharacteristicWriteValue().Text(), BinaryStringEncoding::Utf8);
+            IBuffer writeBuffer = CryptographicBuffer::ConvertStringToBinary(CharacteristicWriteValue().Text(),
+                BinaryStringEncoding::Utf8);
 
+            // WriteBufferToSelectedCharacteristicAsync will display an error message on failure
+            // so we don't have to.
             co_await WriteBufferToSelectedCharacteristicAsync(writeBuffer);
         }
         else
@@ -395,18 +348,16 @@ namespace winrt::SDKTemplate::implementation
         }
     }
 
-    fire_and_forget Scenario2_Client::CharacteristicWriteButtonInt_Click()
+    fire_and_forget Scenario2_Client::CharacteristicWriteButtonInt_Click(IInspectable const&, RoutedEventArgs const&)
     {
         auto lifetime = get_strong();
 
-        int32_t readValue;
-        if (TryParseInt(CharacteristicWriteValue().Text().begin(), readValue))
+        int32_t writeValue;
+        if (TryParseInt(CharacteristicWriteValue().Text().c_str(), writeValue))
         {
-            DataWriter writer;
-            writer.ByteOrder(ByteOrder::LittleEndian);
-            writer.WriteInt32(readValue);
-
-            co_await WriteBufferToSelectedCharacteristicAsync(writer.DetachBuffer());
+            // WriteBufferToSelectedCharacteristicAsync will display an error message on failure
+            // so we don't have to.
+            co_await WriteBufferToSelectedCharacteristicAsync(BufferHelpers::ToBuffer(writeValue));
         }
         else
         {
@@ -430,101 +381,98 @@ namespace winrt::SDKTemplate::implementation
             }
             else
             {
-                rootPage.NotifyUser(L"Write failed: Status = " + to_hstring(result.Status()), NotifyType::ErrorMessage);
+                // This can happen, for example, if a device reports that it supports writing, but it actually doesn't.
+                rootPage.NotifyUser(L"Write failed: " + Utilities::FormatGattCommunicationStatus(result.Status(), result.ProtocolError()), NotifyType::ErrorMessage);
                 co_return false;
             }
         }
-        catch (hresult_error& ex)
+        catch (hresult_error const& ex)
         {
-            if (ex.code() == E_BLUETOOTH_ATT_INVALID_PDU)
+            if (ex.code() == RO_E_CLOSED)
             {
-                rootPage.NotifyUser(ex.message(), NotifyType::ErrorMessage);
-                co_return false;
-            }
-            if (ex.code() == E_BLUETOOTH_ATT_WRITE_NOT_PERMITTED || ex.code() == E_ACCESSDENIED)
-            {
-                // This usually happens when a device reports that it support writing, but it actually doesn't.
-                rootPage.NotifyUser(ex.message(), NotifyType::ErrorMessage);
+                // Server is no longer available.
+                rootPage.NotifyUser(L"Write failed: Service is no longer available,", NotifyType::ErrorMessage);
                 co_return false;
             }
             throw;
         }
     }
 
-    fire_and_forget Scenario2_Client::ValueChangedSubscribeToggle_Click()
+    fire_and_forget Scenario2_Client::ValueChangedSubscribeToggle_Click(IInspectable const&, RoutedEventArgs const&)
     {
         auto lifetime = get_strong();
+        hstring operation;
 
-        if (!notificationsToken)
+        // initialize status
+        auto cccdValue = GattClientCharacteristicConfigurationDescriptorValue::None;
+        if (notificationsToken)
         {
-            GattClientCharacteristicConfigurationDescriptorValue cccdValue = GattClientCharacteristicConfigurationDescriptorValue::None;
-            if ((selectedCharacteristic.CharacteristicProperties() & GattCharacteristicProperties::Indicate) != GattCharacteristicProperties::None)
-            {
-                cccdValue = GattClientCharacteristicConfigurationDescriptorValue::Indicate;
-            }
-
-            else if ((selectedCharacteristic.CharacteristicProperties() & GattCharacteristicProperties::Notify) != GattCharacteristicProperties::None)
-            {
-                cccdValue = GattClientCharacteristicConfigurationDescriptorValue::Notify;
-            }
-
-            try
-            {
-                // BT_Code: Must write the CCCD in order for server to send indications.
-                // We receive them in the ValueChanged event handler.
-                GattCommunicationStatus status = co_await selectedCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(cccdValue);
-
-                if (status == GattCommunicationStatus::Success)
-                {
-                    AddValueChangedHandler();
-                    rootPage.NotifyUser(L"Successfully subscribed for value changes", NotifyType::StatusMessage);
-                }
-                else
-                {
-                    rootPage.NotifyUser(L"Error registering for value changes: Status = " + to_hstring(status), NotifyType::ErrorMessage);
-                }
-            }
-            catch (hresult_access_denied& ex)
-            {
-                // This usually happens when a device reports that it support indicate, but it actually doesn't.
-                rootPage.NotifyUser(ex.message(), NotifyType::ErrorMessage);
-            }
+            // Unsubscribe by specifying "None"
+            operation = L"Unsubscribe";
+            cccdValue = GattClientCharacteristicConfigurationDescriptorValue::None;
+        }
+        else if ((selectedCharacteristic.CharacteristicProperties() & GattCharacteristicProperties::Indicate) != GattCharacteristicProperties::None)
+        {
+            // Subscribe with "indicate"
+            operation = L"Subscribe";
+            cccdValue = GattClientCharacteristicConfigurationDescriptorValue::Indicate;
+        }
+        else if ((selectedCharacteristic.CharacteristicProperties() & GattCharacteristicProperties::Notify) != GattCharacteristicProperties::None)
+        {
+            // Subscribe with "notify"
+            operation = L"Subscribe";
+            cccdValue = GattClientCharacteristicConfigurationDescriptorValue::Notify;
         }
         else
         {
-            try
+            // Unreachable because the button is disabled if it cannot indicate or notify.
+        }
+
+        // BT_Code: Must write the CCCD in order for server to send indications.
+        // We receive them in the ValueChanged event handler.
+        try
+        {
+            GattWriteResult result = co_await selectedCharacteristic.WriteClientCharacteristicConfigurationDescriptorWithResultAsync(cccdValue);
+
+            if (result.Status() == GattCommunicationStatus::Success)
             {
-                // BT_Code: Must write the CCCD in order for server to send notifications.
-                // We receive them in the ValueChanged event handler.
-                // Note that this sample configures either Indicate or Notify, but not both.
-                GattCommunicationStatus result = co_await
-                    selectedCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
-                        GattClientCharacteristicConfigurationDescriptorValue::None);
-                if (result == GattCommunicationStatus::Success)
+                rootPage.NotifyUser(operation + L" succeeded", NotifyType::StatusMessage);
+                if (cccdValue != GattClientCharacteristicConfigurationDescriptorValue::None)
                 {
-                    RemoveValueChangedHandler();
-                    rootPage.NotifyUser(L"Successfully un-registered for notifications", NotifyType::StatusMessage);
+                    AddValueChangedHandler();
                 }
                 else
                 {
-                    rootPage.NotifyUser(L"Error un-registering for notifications: Status = " + to_hstring(result), NotifyType::ErrorMessage);
+                    RemoveValueChangedHandler();
                 }
             }
-            catch (hresult_access_denied& ex)
+            else
             {
-                // This usually happens when a device reports that it support notify, but it actually doesn't.
-                rootPage.NotifyUser(ex.message(), NotifyType::ErrorMessage);
+                // This can happen if a device reports that it supports indicate, but it actually doesn't.
+                rootPage.NotifyUser(operation + L" failed: " + Utilities::FormatGattCommunicationStatus(result.Status(), result.ProtocolError()), NotifyType::ErrorMessage);
+            }
+        }
+        catch (hresult_error const& ex)
+        {
+            if (ex.code() == RO_E_CLOSED)
+            {
+                // Server is no longer available.
+                rootPage.NotifyUser(L"Write failed: Service is no longer available,", NotifyType::ErrorMessage);
+            }
+            else
+            {
+                throw;
             }
         }
     }
 
-    fire_and_forget Scenario2_Client::Characteristic_ValueChanged(GattCharacteristic const&, GattValueChangedEventArgs args)
+    fire_and_forget Scenario2_Client::Characteristic_ValueChanged(GattCharacteristic const& sender, GattValueChangedEventArgs args)
     {
         auto lifetime = get_strong();
 
         // BT_Code: An Indicate or Notify reported that the value has changed.
         // Display the new value with a timestamp.
-        hstring newValue = FormatValueByPresentation(args.CharacteristicValue(), presentationFormat);
+        hstring newValue = FormatValueByPresentation(sender, args.CharacteristicValue());
         std::time_t now = clock::to_time_t(clock::now());
         char buffer[26];
         ctime_s(buffer, ARRAYSIZE(buffer), &now);
@@ -533,52 +481,45 @@ namespace winrt::SDKTemplate::implementation
         CharacteristicLatestValue().Text(message);
     }
 
-    /// <summary>
-    /// Process the raw data received from the device into application usable data,
-    /// according the the Bluetooth Heart Rate Profile.
-    /// https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.heart_rate_measurement.xml&u=org.bluetooth.characteristic.heart_rate_measurement.xml
-    /// This function throws an std::out_of_range if the data cannot be parsed.
-    /// </summary>
-    /// <param name="data">Raw data received from the heart rate monitor.</param>
-    /// <returns>The heart rate measurement value.</returns>
-    int32_t ParseHeartRateValue(IBuffer const& buffer)
+    hstring Scenario2_Client::FormatValueByPresentation(GattCharacteristic const& characteristic, IBuffer const& buffer)
     {
-        // Heart Rate profile defined flag values
-        const uint8_t heartRateValueFormat = 0x1;
-
-        com_array<uint8_t> bytes;
-        CryptographicBuffer::CopyToByteArray(buffer, bytes);
-        
-        if (bytes.at(0) & heartRateValueFormat)
+        auto uuid = characteristic.Uuid();
+        // BT_Code: Choose a presentation format.
+        GattPresentationFormat presentationFormat = nullptr;
+        IVectorView<GattPresentationFormat> formats = selectedCharacteristic.PresentationFormats();
+        uint32_t formatCount = formats.Size();
+        if (formatCount == 1)
         {
-            return bytes.at(1) | (bytes.at(2) << 8);
+            // Get the presentation format since there's only one way of presenting it
+            presentationFormat = formats.GetAt(0);
         }
-        return bytes.at(1);
-    }
+        else if (formatCount > 1)
+        {
+            // It's difficult to figure out how to split up a characteristic and encode its different parts properly.
+            // This sample doesn't try. It just encodes the whole thing to a string to make it easy to print out.
+        }
 
-    hstring Scenario2_Client::FormatValueByPresentation(IBuffer const& buffer, GenericAttributeProfile::GattPresentationFormat const& format)
-    {
         // BT_Code: For the purpose of this sample, this function converts only UInt32 and
         // UTF-8 buffers to readable text. It can be extended to support other formats if your app needs them.
-        if (format != nullptr)
+        if (presentationFormat != nullptr)
         {
-            if (format.FormatType() == GattPresentationFormatTypes::UInt32())
+            if (presentationFormat.FormatType() == GattPresentationFormatTypes::UInt32())
             {
-                uint32_t value;
-                if (TryExtract(buffer, value))
+                std::optional<uint32_t> value = BufferHelpers::FromBuffer<uint32_t>(buffer);
+                if (value)
                 {
-                    return to_hstring(value);
+                    return to_hstring(*value);
                 }
                 return L"(error: Invalid UInt32)";
 
             }
-            else if (format.FormatType() == GattPresentationFormatTypes::Utf8())
+            else if (presentationFormat.FormatType() == GattPresentationFormatTypes::Utf8())
             {
                 try
                 {
                     return CryptographicBuffer::ConvertBinaryToString(BinaryStringEncoding::Utf8, buffer);
                 }
-                catch (hresult_invalid_argument&)
+                catch (hresult_invalid_argument const&)
                 {
                     return L"(error: Invalid UTF-8 string)";
                 }
@@ -589,72 +530,87 @@ namespace winrt::SDKTemplate::implementation
                 return L"Unsupported format: " + CryptographicBuffer::EncodeToHexString(buffer);
             }
         }
-        else if (buffer != nullptr)
+        else if (buffer.Length() == 0)
         {
-            // We don't know what format to use. Let's try some well-known profiles, or default back to UTF-8.
-            if (selectedCharacteristic.Uuid() == GattCharacteristicUuids::HeartRateMeasurement())
+            return L"<empty data>";
+        }
+        // We don't know what format to use. Let's try some well-known profiles, or default back to UTF-8.
+        else if (characteristic.Uuid() == GattCharacteristicUuids::HeartRateMeasurement())
+        {
+            try
             {
-                try
-                {
-                    return L"Heart Rate: " + to_hstring(ParseHeartRateValue(buffer));
-                }
-                catch (std::out_of_range&)
-                {
-                    return L"Heart Rate: (unable to parse)";
-                }
+                return L"Heart Rate: " + to_hstring(ParseHeartRateValue(buffer));
             }
-            else if (selectedCharacteristic.Uuid() == GattCharacteristicUuids::BatteryLevel())
+            catch (hresult_invalid_argument const&)
             {
-                // battery level is encoded as a percentage value in the first byte according to
-                // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.battery_level.xml
-                uint8_t percent;
-                if (TryExtract(buffer, percent))
-                {
-                    return L"Battery Level: " + to_hstring(percent) + L"%";
-                }
-                return L"Battery Level: (unable to parse)";
+                return L"Heart Rate: (unable to parse)";
             }
-            // This is our custom calc service Result UUID. Format it like an Int
-            else if (selectedCharacteristic.Uuid() == Constants::ResultCharacteristicUuid)
+        }
+        else if (characteristic.Uuid() == GattCharacteristicUuids::BatteryLevel())
+        {
+            // battery level is encoded as a percentage value in the first byte according to
+            // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.battery_level.xml
+            uint8_t percent = buffer.data()[0];
+            return L"Battery Level: " + to_hstring(percent) + L"%";
+        }
+        // This is our custom calc service Result UUID. Format it like an Int
+        else if ((characteristic.Uuid() == Constants::ResultCharacteristicUuid) ||
+            (characteristic.Uuid() == Constants::BackgroundResultCharacteristicUuid))
+        {
+            std::optional<int32_t> value = BufferHelpers::FromBuffer<int32_t>(buffer);
+            if (value)
             {
-                int32_t value;
-                if (TryExtract(buffer, value))
-                {
-                    return to_hstring(value);
-                }
-                return L"Invalid response from calc server";
+                return to_hstring(*value);
             }
-            // No guarantees on if a characteristic is registered for notifications.
-            else if (registeredCharacteristic != nullptr)
-            {
-                // This is our custom calc service Result UUID. Format it like an Int
-                if (registeredCharacteristic.Uuid() == Constants::ResultCharacteristicUuid)
-                {
-                    int32_t value;
-                    if (TryExtract(buffer, value))
-                    {
-                        return to_hstring(value);
-                    }
-                    return L"Invalid response from calc server";
-                }
-            }
-            else
-            {
-                try
-                {
-                    return L"Unknown format: " + CryptographicBuffer::ConvertBinaryToString(BinaryStringEncoding::Utf8, buffer);
-
-                }
-                catch (hresult_invalid_argument&)
-                {
-                    return L"Unknown format";
-                }
-            }
+            return L"Invalid response from calc server";
         }
         else
         {
-            return L"Empty data received";
+            // Okay, so maybe UTF-8?
+            try
+            {
+                return CryptographicBuffer::ConvertBinaryToString(BinaryStringEncoding::Utf8, buffer);
+            }
+            catch (...)
+            {
+                // Nope, not even UTF-8. Just show hex.
+                return L"Unknown format: " + CryptographicBuffer::EncodeToHexString(buffer);
+            }
         }
-        return L"Unknown format";
+    }
+
+    /// <summary>
+    /// Process the raw data received from the device into application usable data,
+    /// according the the Bluetooth Heart Rate Profile.
+    /// https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.characteristic.heart_rate_measurement.xml&u=org.bluetooth.characteristic.heart_rate_measurement.xml
+    /// This function throws an std::out_of_range if the data cannot be parsed.
+    /// </summary>
+    /// <param name="data">Raw data received from the heart rate monitor.</param>
+    /// <returns>The heart rate measurement value.</returns>
+    uint16_t Scenario2_Client::ParseHeartRateValue(IBuffer const& buffer)
+    {
+        // Heart Rate profile defined flag values
+        const uint8_t heartRateValueFormat16 = 0x1;
+
+        uint8_t* data = buffer.data();
+        uint32_t length = buffer.Length();
+
+        if (length < 1)
+        {
+            throw hresult_invalid_argument();
+        }
+        if (data[0] & heartRateValueFormat16)
+        {
+            if (length < 3)
+            {
+                throw hresult_invalid_argument();
+            }
+            return data[1] | (data[2] << 8);
+        }
+        if (length < 2)
+        {
+            throw hresult_invalid_argument();
+        }
+        return data[1];
     }
 }

@@ -23,38 +23,52 @@
             <TextBlock Text="Description:" Style="{StaticResource SampleHeaderTextStyle}"/>
             <TextBlock Style="{StaticResource ScenarioDescriptionTextStyle}" Text="Publish the calculator service"/>
             <TextBlock TextWrapping="Wrap" Margin="0,10,0,0">
-                This scenario allows the system to publish a calculator service.  
-                Remote clients (including this sample on another machine) can supply 2 operands and an operator and get a result.
-            </TextBlock>
-            <TextBlock TextWrapping="Wrap" Margin="0,20,0,0">
-                Valid range for Operand is integer values. Valid range for Operator is 1-4 corresponding to +,-,*,/ respectively.
+                This scenario publishes a calculator service.  
+                Remote clients (including this sample on another machine) can connect to service
+                <Run x:Name="ServiceIdRun"/>,
+                then supply 2 operands and an operator and get a result.
             </TextBlock>
             <TextBlock x:Name="PeripheralWarning" TextWrapping="Wrap" Margin="0,10,0,0" Style="{StaticResource BaseTextBlockStyle}" Visibility="Collapsed">
                 There is no Bluetooth device, or the default Bluetooth device cannot act as a Bluetooth server.
             </TextBlock>
-            <StackPanel x:Name="ServerPanel" Visibility="Collapsed">
-                <Button x:Name="PublishButton" Content="Start Service" Click="{x:Bind PublishButton_ClickAsync}" Margin="0,5,5,10"/>
-                <StackPanel Orientation="Vertical">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox x:Name="Operand1Text" Text="0"/>
-                        <TextBlock Text="Operand 1" Margin="10,5,5,5"/>
+            <StackPanel x:Name="ServerPanel" Visibility="Visible">
+                <CheckBox x:Name="Publishing2MPHY" IsEnabled="False" Click="Publishing2MPHY_Click">
+                    <TextBlock TextWrapping="Wrap">
+                        Advertising with 2M PHY as secondary PHY <Run x:Name="Publishing2MPHYReasonRun"/>
+                    </TextBlock>
+                </CheckBox>
+                <Button x:Name="PublishButton" Content="Start Service" Click="PublishButton_Click" Margin="0,5,5,10"/>
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Orientation="Vertical">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Name="Operand1TextBox" AutomationProperties.LabeledBy="{Binding ElementName=Operand1Label}" Text="0"/>
+                            <TextBlock Name="Operand1Label" x:Uid="Operand1Label" Text="Operand 1 (integer)" Margin="10,5,5,5"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Name="OperationTextBox" AutomationProperties.LabeledBy="{Binding ElementName=OperationLabel}" Text="INV"/>
+                            <TextBlock x:Name="OperationLabel" x:Uid="OperationLabel" Text="Operator" Margin="10,5,5,5"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Name="Operand2TextBox" AutomationProperties.LabeledBy="{Binding ElementName=Operand2Label}" Text="0"/>
+                            <TextBlock Name="Operand2Label" x:Uid="Operand1Label" Text="Operand 2 (integer)" Margin="10,5,5,5"/>
+                        </StackPanel>
+                        <Line Margin="0,5,5,0" StrokeThickness="1" Fill="AntiqueWhite" Height="5"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Name="ResultTextBox" AutomationProperties.LabeledBy="{Binding ElementName=ResultLabel}" Text="0"/>
+                            <TextBlock Name="ResultLabel" x:Uid="ResultLabel" Text="Result" Margin="10,5,5,5"/>
+                        </StackPanel>
                     </StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox x:Name="OperationText" Text="+"/>
-                        <TextBlock x:Name="OperationLabel" Text="Operator" Margin="10,5,5,5"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox x:Name="Operand2Text" Text="0"/>
-                        <TextBlock Text="Operand 2" Margin="10,5,5,5"/>
-                    </StackPanel>
-                    <StackPanel>
-                        <Line Margin="0,5,5,0" StrokeThickness="1" Fill="AntiqueWhite" Height="5" RenderTransformOrigin="0.5,0.5">
-                        </Line>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox x:Name="ResultText" Text="0"/>
-                        <TextBlock Text="Result" Margin="10,5,5,5"/>
-                    </StackPanel>
+                    <TextBlock TextWrapping="Wrap" Margin="20,0,0,0">
+                         Operator codes:
+                        <LineBreak/>
+                        1: addition
+                        <LineBreak/>
+                        2: subtraction
+                        <LineBreak/>
+                        3: multiplication
+                        <LineBreak/>
+                        4: division
+                    </TextBlock>
                 </StackPanel>
             </StackPanel>
         </StackPanel>

@@ -1,6 +1,6 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="packages\Microsoft.Windows.CppWinRT.2.0.190506.1\build\native\Microsoft.Windows.CppWinRT.props" Condition="Exists('packages\Microsoft.Windows.CppWinRT.2.0.190506.1\build\native\Microsoft.Windows.CppWinRT.props')" />
+  <Import Project="packages\Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.props" Condition="Exists('packages\Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.props')" />
   <PropertyGroup>
     <SharedContentDir>$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), LICENSE))\SharedContent</SharedContentDir>
   </PropertyGroup>
@@ -14,8 +14,8 @@
     <AppContainerApplication>true</AppContainerApplication>
     <ApplicationType>Windows Store</ApplicationType>
     <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
-    <WindowsTargetPlatformVersion>10.0.22621.0</WindowsTargetPlatformVersion>
-    <WindowsTargetPlatformMinVersion>$(WindowsTargetPlatformVersion)</WindowsTargetPlatformMinVersion>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.17763.0</WindowsTargetPlatformMinVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <ItemGroup Label="ProjectConfigurations">
@@ -58,6 +58,7 @@
     <LinkIncremental>false</LinkIncremental>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="Shared" />
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -95,6 +96,7 @@
     </ClInclude>
     <ClInclude Include="BluetoothLEAttributeDisplay.h" />
     <ClInclude Include="BluetoothLEDeviceDisplay.h" />
+    <ClInclude Include="CalculatorServerBackgroundTask.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="PresentationFormats.h" />
     <ClInclude Include="SampleConfiguration.h" />
@@ -107,6 +109,13 @@
     <ClInclude Include="Scenario3_ServerForeground.h">
       <DependentUpon>..\shared\Scenario3_ServerForeground.xaml</DependentUpon>
     </ClInclude>
+    <ClInclude Include="Scenario4_ServerBackground.h">
+      <DependentUpon>..\shared\Scenario4_ServerBackground.xaml</DependentUpon>
+    </ClInclude>
+    <ClInclude Include="$(SharedContentDir)\cppwinrt\Styles.xaml.h">
+      <DependentUpon>$(SharedContentDir)\xaml\Styles.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ApplicationDefinition Include="$(SharedContentDir)\xaml\App.xaml">
@@ -118,6 +127,7 @@
     <Page Include="..\shared\Scenario1_Discovery.xaml" />
     <Page Include="..\shared\Scenario2_Client.xaml" />
     <Page Include="..\shared\Scenario3_ServerForeground.xaml" />
+    <Page Include="..\shared\Scenario4_ServerBackground.xaml" />
     <Page Include="$(SharedContentDir)\xaml\Styles.xaml">
       <Link>Styles\Styles.xaml</Link>
     </Page>
@@ -135,6 +145,13 @@
     <ClCompile Include="BluetoothLEDeviceDisplay.cpp">
       <DependentUpon>BluetoothLEDeviceDisplay.h</DependentUpon>
     </ClCompile>
+    <ClCompile Include="CalculatorServerBackgroundTask.cpp">
+      <DependentUpon>CalculatorServerBackgroundTask.h</DependentUpon>
+    </ClCompile>
+    <ClCompile Include="$(SharedContentDir)\cppwinrt\Styles.xaml.cpp">
+      <DependentUpon>$(SharedContentDir)\xaml\Styles.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </ClCompile>
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
       <DependentUpon>pch.h</DependentUpon>
@@ -151,6 +168,9 @@
     <ClCompile Include="Scenario3_ServerForeground.cpp">
       <DependentUpon>..\shared\Scenario3_ServerForeground.xaml</DependentUpon>
     </ClCompile>
+    <ClCompile Include="Scenario4_ServerBackground.cpp">
+      <DependentUpon>..\shared\Scenario4_ServerBackground.xaml</DependentUpon>
+    </ClCompile>
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp">
       <DependentUpon>Project.idl</DependentUpon>
     </ClCompile>
@@ -158,6 +178,10 @@
   <ItemGroup>
     <Midl Include="$(SharedContentDir)\cppwinrt\MainPage.idl">
       <DependentUpon>$(SharedContentDir)\xaml\MainPage.xaml</DependentUpon>
+    </Midl>
+    <Midl Include="$(SharedContentDir)\cppwinrt\Styles.idl">
+      <DependentUpon>$(SharedContentDir)\xaml\Styles.xaml</DependentUpon>
+      <SubType>Code</SubType>
     </Midl>
     <Midl Include="Project.idl" />
   </ItemGroup>
@@ -194,13 +218,13 @@
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
-    <Import Project="packages\Microsoft.Windows.CppWinRT.2.0.190506.1\build\native\Microsoft.Windows.CppWinRT.targets" Condition="Exists('packages\Microsoft.Windows.CppWinRT.2.0.190506.1\build\native\Microsoft.Windows.CppWinRT.targets')" />
+    <Import Project="packages\Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.targets" Condition="Exists('packages\Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
     </PropertyGroup>
-    <Error Condition="!Exists('packages\Microsoft.Windows.CppWinRT.2.0.190506.1\build\native\Microsoft.Windows.CppWinRT.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Windows.CppWinRT.2.0.190506.1\build\native\Microsoft.Windows.CppWinRT.props'))" />
-    <Error Condition="!Exists('packages\Microsoft.Windows.CppWinRT.2.0.190506.1\build\native\Microsoft.Windows.CppWinRT.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Windows.CppWinRT.2.0.190506.1\build\native\Microsoft.Windows.CppWinRT.targets'))" />
+    <Error Condition="!Exists('packages\Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.props')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.props'))" />
+    <Error Condition="!Exists('packages\Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.targets')" Text="$([System.String]::Format('$(ErrorText)', 'packages\Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.targets'))" />
   </Target>
 </Project>

@@ -10,56 +10,59 @@
 //*********************************************************
 
 using System;
-using System.Collections.Generic;
-using Windows.Storage.Streams;
+using System.Text;
+using Windows.Devices.Bluetooth;
+using Windows.Devices.Bluetooth.Advertisement;
+using Windows.Globalization.DateTimeFormatting;
+using Windows.Security.Cryptography;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
 
-using Windows.Devices.Bluetooth.Advertisement;
-
-using SDKTemplate;
-
-namespace BluetoothAdvertisement
+namespace SDKTemplate
 {
     /// <summary>
     /// An empty page that can be used on its own or navigated to within a Frame.
     /// </summary>
     public sealed partial class Scenario1_Watcher : Page
     {
+        // A pointer back to the main page is required to display status messages.
+        private MainPage rootPage = MainPage.Current;
+
+        // For pretty-printing timestamps.
+        DateTimeFormatter formatter = new DateTimeFormatter("longtime");
+
         // The Bluetooth LE advertisement watcher class is used to control and customize Bluetooth LE scanning.
         private BluetoothLEAdvertisementWatcher watcher;
+        bool isWatcherStarted = false;
 
-        // A pointer back to the main page is required to display status messages.
-        private MainPage rootPage;
+        // Capability of the Bluetooth radio adapter.
+        private bool supportsCodedPhy = false;
+        private bool supportsHardwareOffloadedFilters = false;
 
-        /// <summary>
-        /// Initializes the singleton application object.  This is the first line of authored code
-        /// executed, and as such is the logical equivalent of main() or WinMain().
-        /// </summary>
         public Scenario1_Watcher()
         {
-            this.InitializeComponent();
+            InitializeComponent();
 
             // Create and initialize a new watcher instance.
             watcher = new BluetoothLEAdvertisementWatcher();
 
-            // Begin of watcher configuration. Configure the advertisement filter to look for the data advertised by the publisher 
-            // in Scenario 2 or 4. You need to run Scenario 2 on another Windows platform within proximity of this one for Scenario 1 to 
+            // Begin of watcher configuration. Configure the advertisement filter to look for the data advertised by the publisher
+            // in Scenario 2 or 4. You need to run Scenario 2 on another Windows platform within proximity of this one for Scenario 1 to
             // take effect. The APIs shown in this Scenario are designed to operate only if the App is in the foreground. For background
             // watcher operation, please refer to Scenario 3.
 
             // Please comment out this following section (watcher configuration) if you want to remove all filters. By not specifying
             // any filters, all advertisements received will be notified to the App through the event handler. You should comment out the following
-            // section if you do not have another Windows platform to run Scenario 2 alongside Scenario 1 or if you want to scan for 
+            // section if you do not have another Windows platform to run Scenario 2 alongside Scenario 1 or if you want to scan for
             // all LE advertisements around you.
 
-            // For determining the filter restrictions programatically across APIs, use the following properties:
+            // For determining the filter restrictions programmatically across APIs, use the following properties:
             //      MinSamplingInterval, MaxSamplingInterval, MinOutOfRangeTimeout, MaxOutOfRangeTimeout
 
             // Part 1A: Configuring the advertisement filter to watch for a particular advertisement payload
 
-            // First, let create a manufacturer data section we wanted to match for. These are the same as the one 
+            // First, let create a manufacturer data section we wanted to match for. These are the same as the one
             // created in Scenario 2 and 4.
             var manufacturerData = new BluetoothLEManufacturerData();
 
@@ -68,21 +71,19 @@ namespace BluetoothAdvertisement
 
             // Finally set the data payload within the manufacturer-specific section
             // Here, use a 16-bit UUID: 0x1234 -> {0x34, 0x12} (little-endian)
-            var writer = new DataWriter();
-            writer.WriteUInt16(0x1234);
+            UInt16 uuidData = 0x1234;
 
             // Make sure that the buffer length can fit within an advertisement payload. Otherwise you will get an exception.
-            manufacturerData.Data = writer.DetachBuffer();
+            manufacturerData.Data = Utilities.BufferFromUInt16(uuidData);
 
             // Add the manufacturer data to the advertisement filter on the watcher:
             watcher.AdvertisementFilter.Advertisement.ManufacturerData.Add(manufacturerData);
 
-
             // Part 1B: Configuring the signal strength filter for proximity scenarios
 
             // Configure the signal strength filter to only propagate events when in-range
-            // Please adjust these values if you cannot receive any advertisement 
-            // Set the in-range threshold to -70dBm. This means advertisements with RSSI >= -70dBm 
+            // Please adjust these values if you cannot receive any advertisement
+            // Set the in-range threshold to -70dBm. This means advertisements with RSSI >= -70dBm
             // will start to be considered "in-range".
             watcher.SignalStrengthFilter.InRangeThresholdInDBm = -70;
 
@@ -92,7 +93,7 @@ namespace BluetoothAdvertisement
 
             // Set the out-of-range timeout to be 2 seconds. Used in conjunction with OutOfRangeThresholdInDBm
             // to determine when an advertisement is no longer considered "in-range"
-            watcher.SignalStrengthFilter.OutOfRangeTimeout = TimeSpan.FromMilliseconds(2000);
+            watcher.SignalStrengthFilter.OutOfRangeTimeout = TimeSpan.FromSeconds(2);
 
             // By default, the sampling interval is set to zero, which means there is no sampling and all
             // the advertisement received is returned in the Received event
@@ -102,16 +103,13 @@ namespace BluetoothAdvertisement
 
         /// <summary>
         /// Invoked when this page is about to be displayed in a Frame.
-        ///
         /// We will enable/disable parts of the UI if the device doesn't support it.
         /// </summary>
         /// <param name="eventArgs">Event data that describes how this page was reached. The Parameter
         /// property is typically used to configure the page.</param>
-        protected override void OnNavigatedTo(NavigationEventArgs e)
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            rootPage = MainPage.Current;
-
-            // Attach a handler to process the received advertisement. 
+            // Attach a handler to process the received advertisement.
             // The watcher cannot be started without a Received handler attached
             watcher.Received += OnAdvertisementReceived;
 
@@ -122,6 +120,32 @@ namespace BluetoothAdvertisement
             // Attach handlers for suspension to stop the watcher when the App is suspended.
             App.Current.Suspending += App_Suspending;
             App.Current.Resuming += App_Resuming;
+
+            // Detect OS and default Bluetooth adapter support for features.
+            if (FeatureDetection.AreExtendedAdvertisingPhysAndScanParametersSupported)
+            {
+                var adapter = await BluetoothAdapter.GetDefaultAsync();
+                if (adapter != null)
+                {
+                    supportsCodedPhy = adapter.IsLowEnergyCodedPhySupported;
+                    supportsHardwareOffloadedFilters = adapter.IsAdvertisementOffloadSupported;
+                }
+                if (!supportsCodedPhy)
+                {
+                    Watcher1MAndCodedPhysReasonRun.Text = "(Not supported by default Bluetooth adapter)";
+                }
+                if (!supportsHardwareOffloadedFilters)
+                {
+                    WatcherPerformanceOptimizationsReasonRun.Text = "(Not supported by default Bluetooth adapter)";
+                }
+            }
+            else
+            {
+                Watcher1MAndCodedPhysReasonRun.Text = "(Not supported by this version of Windows)";
+                WatcherPerformanceOptimizationsReasonRun.Text = "(Not supported by this version of Windows)";
+
+            }
+            UpdateButtons();
 
             rootPage.NotifyUser("Press Run to start watcher.", NotifyType.StatusMessage);
         }
@@ -134,7 +158,7 @@ namespace BluetoothAdvertisement
         /// of the navigation that will unload the current Page unless canceled. The
         /// navigation can potentially be canceled by setting Cancel.
         /// </param>
-        protected override void OnNavigatingFrom(NavigatingCancelEventArgs e)
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
             // Remove local suspension handlers from the App since this page is no longer active.
             App.Current.Suspending -= App_Suspending;
@@ -143,12 +167,12 @@ namespace BluetoothAdvertisement
             // Make sure to stop the watcher when leaving the context. Even if the watcher is not stopped,
             // scanning will be stopped automatically if the watcher is destroyed.
             watcher.Stop();
+
             // Always unregister the handlers to release the resources to prevent leaks.
             watcher.Received -= OnAdvertisementReceived;
             watcher.Stopped -= OnAdvertisementWatcherStopped;
 
             rootPage.NotifyUser("Navigating away. Watcher stopped.", NotifyType.StatusMessage);
-            base.OnNavigatingFrom(e);
         }
 
         /// <summary>
@@ -162,6 +186,8 @@ namespace BluetoothAdvertisement
         {
             // Make sure to stop the watcher on suspend.
             watcher.Stop();
+            isWatcherStarted = false;
+
             // Always unregister the handlers to release the resources to prevent leaks.
             watcher.Received -= OnAdvertisementReceived;
             watcher.Stopped -= OnAdvertisementWatcherStopped;
@@ -178,6 +204,7 @@ namespace BluetoothAdvertisement
         {
             watcher.Received += OnAdvertisementReceived;
             watcher.Stopped += OnAdvertisementWatcherStopped;
+            UpdateButtons();
         }
 
         /// <summary>
@@ -187,10 +214,51 @@ namespace BluetoothAdvertisement
         /// <param name="e">Event data describing the conditions that led to the event.</param>
         private void RunButton_Click(object sender, RoutedEventArgs e)
         {
+            // By default, Windows will scan over the 1M PHYs.
+            if (supportsCodedPhy)
+            {
+                if (Watcher1MAndCodedPhysCheckBox.IsChecked.Value)
+                {
+                    /// Enable the Bluetooth adapter to also scan over 2M and Coded PHYs.
+                    watcher.UseCodedPhy = true;
+                    // Required in order to specify multiple scan PHYs
+                    watcher.AllowExtendedAdvertisements = true;
+                }
+                else
+                {
+                    watcher.UseCodedPhy = false;
+                    watcher.AllowExtendedAdvertisements = false;
+                }
+            }
+
+            if (supportsHardwareOffloadedFilters)
+            {
+                if (WatcherPerformanceOptimizationsCheckBox.IsChecked.Value)
+                {
+                    /// Enable the Bluetooth adapter to perform a scan with performance optimizations
+                    /// by coexistence with other technologies, and offloading the filter to hardware.
+                    /// The added feature could be use independently. For example, you can enable
+                    /// hardware offload without enabling the performance optimization.
+                    /// To enable hardware filter offload, you need to provide a filter pattern for matching.
+                    /// For detailed instructions on setting up the filter,
+                    /// refer to Part 1A and 1B in Scenario1_Watcher initialization.
+                    watcher.ScanParameters = BluetoothLEAdvertisementScanParameters.CoexistenceOptimized();
+                    watcher.UseHardwareFilter = true;
+                }
+                else
+                {
+                    /// Disable performance optimizations and reset to default low latency.
+                    watcher.UseHardwareFilter = false;
+                    watcher.ScanParameters = BluetoothLEAdvertisementScanParameters.LowLatency();
+                }
+            }
+
             // Calling watcher start will start the scanning if not already initiated by another client
             watcher.Start();
+            isWatcherStarted = true;
 
             rootPage.NotifyUser("Watcher started.", NotifyType.StatusMessage);
+            UpdateButtons();
         }
 
         /// <summary>
@@ -202,61 +270,65 @@ namespace BluetoothAdvertisement
         {
             // Stopping the watcher will stop scanning if this is the only client requesting scan
             watcher.Stop();
-
+            isWatcherStarted = false;
             rootPage.NotifyUser("Watcher stopped.", NotifyType.StatusMessage);
+            UpdateButtons();
+        }
+
+        /// <summary>
+        /// Enable and disable buttons based on the watcher state and based on what
+        /// features are supported.
+        /// </summary>
+        private void UpdateButtons()
+        {
+            Watcher1MAndCodedPhysCheckBox.IsEnabled = supportsCodedPhy && !isWatcherStarted;
+            WatcherPerformanceOptimizationsCheckBox.IsEnabled = supportsHardwareOffloadedFilters && !isWatcherStarted;
+            RunButton.IsEnabled = !isWatcherStarted;
+            StopButton.IsEnabled = isWatcherStarted;
         }
 
         /// <summary>
         /// Invoked as an event handler when an advertisement is received.
         /// </summary>
         /// <param name="watcher">Instance of watcher that triggered the event.</param>
-        /// <param name="eventArgs">Event data containing information about the advertisement event.</param>
-        private async void OnAdvertisementReceived(BluetoothLEAdvertisementWatcher watcher, BluetoothLEAdvertisementReceivedEventArgs eventArgs)
+        /// <param name="e">Event data containing information about the advertisement event.</param>
+        private async void OnAdvertisementReceived(BluetoothLEAdvertisementWatcher watcher, BluetoothLEAdvertisementReceivedEventArgs e)
         {
-            // We can obtain various information about the advertisement we just received by accessing 
-            // the properties of the EventArgs class
+            // We can obtain various information about the advertisement we just received by accessing
+            // the properties of the BluetoothLEAdvertisementReceivedEventArgs class
 
-            // The timestamp of the event
-            DateTimeOffset timestamp = eventArgs.Timestamp;
+            var builder = new StringBuilder();
+
+            // The timestamps of the event
+            builder.Append($"[{formatter.Format(e.Timestamp)}]: ");
 
             // The type of advertisement
-            BluetoothLEAdvertisementType advertisementType = eventArgs.AdvertisementType;
+            builder.Append($"type={e.AdvertisementType}, ");
 
             // The received signal strength indicator (RSSI)
-            Int16 rssi = eventArgs.RawSignalStrengthInDBm;
+            builder.Append($"rssi={e.RawSignalStrengthInDBm} dBm");
 
             // The local name of the advertising device contained within the payload, if any
-            string localName = eventArgs.Advertisement.LocalName;
+            string localName = e.Advertisement.LocalName;
+            if (!string.IsNullOrEmpty(localName))
+            {
+                builder.Append($", name={localName}");
+            }
 
             // Check if there are any manufacturer-specific sections.
             // If there is, print the raw data of the first manufacturer section (if there are multiple).
-            string manufacturerDataString = "";
-            var manufacturerSections = eventArgs.Advertisement.ManufacturerData;
-            if (manufacturerSections.Count > 0)
+            var manufacturerData = e.Advertisement.ManufacturerData;
+            if (manufacturerData.Count > 0)
             {
                 // Only print the first one of the list
-                var manufacturerData = manufacturerSections[0];
-                var data = new byte[manufacturerData.Data.Length];
-                using (var reader = DataReader.FromBuffer(manufacturerData.Data))
-                {
-                    reader.ReadBytes(data);
-                }
-                // Print the company ID + the raw data in hex format
-                manufacturerDataString = string.Format("0x{0}: {1}",
-                    manufacturerData.CompanyId.ToString("X"),
-                    BitConverter.ToString(data));
+                builder.Append($", manufacturerData=[{Utilities.FormatManufacturerData(manufacturerData[0])}]");
             }
 
             // Serialize UI update to the main UI thread
-            await this.Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+            await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
             {
-                // Display these information on the list
-                ReceivedAdvertisementListBox.Items.Add(string.Format("[{0}]: type={1}, rssi={2}, name={3}, manufacturerData=[{4}]",
-                    timestamp.ToString("hh\\:mm\\:ss\\.fff"),
-                    advertisementType.ToString(),
-                    rssi.ToString(),
-                    localName,
-                    manufacturerDataString));
+                // Add another entry to the list.
+                ReceivedAdvertisementListBox.Items.Add(builder.ToString());
             });
         }
 
@@ -265,13 +337,10 @@ namespace BluetoothAdvertisement
         /// </summary>
         /// <param name="watcher">Instance of watcher that triggered the event.</param>
         /// <param name="eventArgs">Event data containing information about why the watcher stopped or aborted.</param>
-        private async void OnAdvertisementWatcherStopped(BluetoothLEAdvertisementWatcher watcher, BluetoothLEAdvertisementWatcherStoppedEventArgs eventArgs)
+        private void OnAdvertisementWatcherStopped(BluetoothLEAdvertisementWatcher watcher, BluetoothLEAdvertisementWatcherStoppedEventArgs eventArgs)
         {
             // Notify the user that the watcher was stopped
-            await this.Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
-            {
-                rootPage.NotifyUser(string.Format("Watcher stopped or aborted: {0}", eventArgs.Error.ToString()), NotifyType.StatusMessage);
-            });
+            rootPage.NotifyUser(string.Format("Watcher stopped or aborted: {0}", eventArgs.Error.ToString()), NotifyType.StatusMessage);
         }
     }
 }

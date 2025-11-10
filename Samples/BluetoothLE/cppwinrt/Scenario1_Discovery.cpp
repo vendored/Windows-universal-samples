@@ -18,6 +18,7 @@
 using namespace winrt;
 using namespace Windows::Devices::Enumeration;
 using namespace Windows::Foundation;
+using namespace Windows::Foundation::Collections;
 using namespace Windows::UI::Core;
 using namespace Windows::UI::Xaml;
 using namespace Windows::UI::Xaml::Navigation;
@@ -81,7 +82,7 @@ namespace winrt::SDKTemplate::implementation
         }
     }
 
-    void Scenario1_Discovery::EnumerateButton_Click()
+    void Scenario1_Discovery::EnumerateButton_Click(IInspectable const&, RoutedEventArgs const&)
     {
         if (deviceWatcher == nullptr)
         {
@@ -100,7 +101,7 @@ namespace winrt::SDKTemplate::implementation
 
 #pragma region Device discovery
     /// <summary>
-    /// Starts a device watcher that looks for all nearby Bluetooth devices (paired or unpaired). 
+    /// Starts a device watcher that looks for all nearby Bluetooth devices (paired or unpaired).
     /// Attaches event handlers to populate the device collection.
     /// </summary>
     void Scenario1_Discovery::StartBleDeviceWatcher()
@@ -126,7 +127,7 @@ namespace winrt::SDKTemplate::implementation
         deviceWatcherStoppedToken = deviceWatcher.Stopped({ get_weak(), &Scenario1_Discovery::DeviceWatcher_Stopped });
 
         // Start over with an empty collection.
-        m_knownDevices.Clear();
+        knownDevices.Clear();
 
         // Start the watcher. Active enumeration is limited to approximately 30 seconds.
         // This limits power usage and reduces interference with other Bluetooth activities.
@@ -156,26 +157,30 @@ namespace winrt::SDKTemplate::implementation
         }
     }
 
-    std::tuple<SDKTemplate::BluetoothLEDeviceDisplay, uint32_t> Scenario1_Discovery::FindBluetoothLEDeviceDisplay(hstring const& id)
+    SDKTemplate::BluetoothLEDeviceDisplay Scenario1_Discovery::FindBluetoothLEDeviceDisplay(hstring const& id)
     {
-        uint32_t size = m_knownDevices.Size();
-        for (uint32_t index = 0; index < size; index++)
+        for (auto&& bleDeviceDisplay : knownDevices)
         {
-            auto bleDeviceDisplay = m_knownDevices.GetAt(index).as<SDKTemplate::BluetoothLEDeviceDisplay>();
             if (bleDeviceDisplay.Id() == id)
             {
-                return { bleDeviceDisplay, index };
+                return bleDeviceDisplay;
             }
         }
-        return { nullptr, 0-1U };
+        return nullptr;
     }
 
-    std::vector<Windows::Devices::Enumeration::DeviceInformation>::iterator Scenario1_Discovery::FindUnknownDevices(hstring const& id)
+    uint32_t Scenario1_Discovery::FindBluetoothLEDeviceDisplayIndex(hstring const& id)
     {
-        return std::find_if(UnknownDevices.begin(), UnknownDevices.end(), [&](auto&& bleDeviceInfo)
+        uint32_t size = knownDevices.Size();
+        for (uint32_t index = 0; index < size; index++)
         {
-            return bleDeviceInfo.Id() == id;
-        });
+            auto bleDeviceDisplay = knownDevices.GetAt(index);
+            if (bleDeviceDisplay.Id() == id)
+            {
+                return index;
+            }
+        }
+        return invalid_vector_index;
     }
 
     fire_and_forget Scenario1_Discovery::DeviceWatcher_Added(DeviceWatcher sender, DeviceInformation deviceInfo)
@@ -190,18 +195,10 @@ namespace winrt::SDKTemplate::implementation
         if (sender == deviceWatcher)
         {
             // Make sure device isn't already present in the list.
-            if (std::get<0>(FindBluetoothLEDeviceDisplay(deviceInfo.Id())) == nullptr)
+            if (FindBluetoothLEDeviceDisplayIndex(deviceInfo.Id()) == invalid_vector_index)
             {
-                if (!deviceInfo.Name().empty())
-                {
-                    // If device has a friendly name display it immediately.
-                    m_knownDevices.Append(make<BluetoothLEDeviceDisplay>(deviceInfo));
-                }
-                else
-                {
-                    // Add it to a list in case the name gets updated later. 
-                    UnknownDevices.push_back(deviceInfo);
-                }
+                // Add the device using its Bluetooth address. If the device has a friendly name, update it later.
+                knownDevices.Append(make<BluetoothLEDeviceDisplay>(deviceInfo));
             }
         }
     }
@@ -217,24 +214,16 @@ namespace winrt::SDKTemplate::implementation
         // Protect against race condition if the task runs after the app stopped the deviceWatcher.
         if (sender == deviceWatcher)
         {
-            SDKTemplate::BluetoothLEDeviceDisplay bleDeviceDisplay = std::get<0>(FindBluetoothLEDeviceDisplay(deviceInfoUpdate.Id()));
+            SDKTemplate::BluetoothLEDeviceDisplay bleDeviceDisplay = FindBluetoothLEDeviceDisplay(deviceInfoUpdate.Id());
             if (bleDeviceDisplay != nullptr)
             {
                 // Device is already being displayed - update UX.
                 bleDeviceDisplay.Update(deviceInfoUpdate);
                 co_return;
             }
-
-            auto deviceInfo = FindUnknownDevices(deviceInfoUpdate.Id());
-            if (deviceInfo != UnknownDevices.end())
+            else
             {
-                deviceInfo->Update(deviceInfoUpdate);
-                // If device has been updated with a friendly name it's no longer unknown.
-                if (!deviceInfo->Name().empty())
-                {
-                    m_knownDevices.Append(make<BluetoothLEDeviceDisplay>(*deviceInfo));
-                    UnknownDevices.erase(deviceInfo);
-                }
+                knownDevices.Append(bleDeviceDisplay);
             }
         }
     }
@@ -251,16 +240,10 @@ namespace winrt::SDKTemplate::implementation
         if (sender == deviceWatcher)
         {
             // Find the corresponding DeviceInformation in the collection and remove it.
-            auto[bleDeviceDisplay, index] = FindBluetoothLEDeviceDisplay(deviceInfoUpdate.Id());
-            if (bleDeviceDisplay != nullptr)
+            auto index = FindBluetoothLEDeviceDisplayIndex(deviceInfoUpdate.Id());
+            if (index != invalid_vector_index)
             {
-                m_knownDevices.RemoveAt(index);
-            }
-
-            auto deviceInfo = FindUnknownDevices(deviceInfoUpdate.Id());
-            if (deviceInfo != UnknownDevices.end())
-            {
-                UnknownDevices.erase(deviceInfo);
+                knownDevices.RemoveAt(index);
             }
         }
     }
@@ -274,7 +257,7 @@ namespace winrt::SDKTemplate::implementation
         // Protect against race condition if the task runs after the app stopped the deviceWatcher.
         if (sender == deviceWatcher)
         {
-            rootPage.NotifyUser(to_hstring(m_knownDevices.Size()) + L" devices found. Enumeration completed.",
+            rootPage.NotifyUser(to_hstring(knownDevices.Size()) + L" devices found. Enumeration completed.",
                 NotifyType::StatusMessage);
         }
     }
@@ -295,7 +278,7 @@ namespace winrt::SDKTemplate::implementation
 #pragma endregion
 
 #pragma region Pairing
-    fire_and_forget Scenario1_Discovery::PairButton_Click()
+    fire_and_forget Scenario1_Discovery::PairButton_Click(IInspectable const&, RoutedEventArgs const&)
     {
         auto lifetime = get_strong();
         EnumerateButton().IsEnabled(false);

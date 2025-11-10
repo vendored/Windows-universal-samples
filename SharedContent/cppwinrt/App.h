@@ -1,4 +1,4 @@
-﻿//*********************************************************
+//*********************************************************
 //
 // Copyright (c) Microsoft. All rights reserved.
 // This code is licensed under the MIT License (MIT).
@@ -22,6 +22,7 @@ namespace winrt::SDKTemplate::implementation
         void OnLaunched(Windows::ApplicationModel::Activation::LaunchActivatedEventArgs const&);
         void OnActivated(Windows::ApplicationModel::Activation::IActivatedEventArgs const&);
         void OnFileActivated(Windows::ApplicationModel::Activation::FileActivatedEventArgs const&);
+        void OnBackgroundActivated(Windows::ApplicationModel::Activation::BackgroundActivatedEventArgs const&);
         void OnNavigationFailed(IInspectable const&, Windows::UI::Xaml::Navigation::NavigationFailedEventArgs const&);
     };
 }

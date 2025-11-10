@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  IgnorableNamespaces="uap mp"
+  >
+  <Identity Name="Microsoft.SDKSamples.BluetoothAdvertisement.CPP" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" Version="1.0.0.0"/>
+  <mp:PhoneIdentity PhoneProductId="6c3467b3-d7f8-49e4-94de-c20ae49d2564" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+  <Properties>
+    <DisplayName>BluetoothAdvertisement C++/WinRT Sample</DisplayName>
+    <PublisherDisplayName>Microsoft Corporation</PublisherDisplayName>
+    <Logo>Assets\storelogo-sdk.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="x-generate"/>
+  </Resources>
+  <Applications>
+    <Application Id="App"
+                 Executable="$targetnametoken$.exe"
+                 EntryPoint="BluetoothAdvertisementCS.App">
+      <uap:VisualElements
+        DisplayName="BluetoothAdvertisement C++/WinRT Sample"
+        Square150x150Logo="Assets\squareTile-sdk.png"
+        Square44x44Logo="Assets\smallTile-sdk.png"
+        Description="BluetoothAdvertisement C++/WinRT Sample"
+        BackgroundColor="#00B2F0"
+        >
+        <uap:SplashScreen Image="Assets\splash-sdk.png"/>
+        <uap:DefaultTile>
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo"/>
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile>
+      </uap:VisualElements>
+      <!-- Example declarations of out-of-process background tasks
+      <Extensions>
+          <Extension Category="windows.backgroundTasks" EntryPoint="Tasks.AdvertisementWatcherTask">
+              <BackgroundTasks>
+                  <Task Type="bluetooth"/>
+              </BackgroundTasks>
+          </Extension>
+          <Extension Category="windows.backgroundTasks" EntryPoint="Tasks.AdvertisementPublisherTask">
+              <BackgroundTasks>
+                  <Task Type="bluetooth"/>
+              </BackgroundTasks>
+          </Extension>
+      </Extensions>
+      -->
+    </Application>
+  </Applications>
+  <!-- Example declaration of out-of-process background task server
+  <Extensions>
+      <Extension Category="windows.activatableClass.inProcessServer">
+          <InProcessServer>
+              <Path>Tasks.dll</Path>
+              <ActivatableClass ActivatableClassId="Tasks.AdvertisementWatcherTask" ThreadingModel="both" />
+              <ActivatableClass ActivatableClassId="Tasks.AdvertisementPublisherTask" ThreadingModel="both" />
+          </InProcessServer>
+      </Extension>
+  </Extensions>
+  -->
+  <Capabilities>
+    <DeviceCapability Name="bluetooth"/>
+  </Capabilities>
+</Package>

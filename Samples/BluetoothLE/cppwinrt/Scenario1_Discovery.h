@@ -14,28 +14,33 @@
 #include "Scenario1_Discovery.g.h"
 #include "MainPage.h"
 
+using namespace winrt;
+using namespace Windows::Foundation;
+using namespace Windows::Foundation::Collections;
+using namespace Windows::UI::Xaml::Navigation;
+using namespace Windows::Devices::Enumeration;
+
 namespace winrt::SDKTemplate::implementation
 {
     struct Scenario1_Discovery : Scenario1_DiscoveryT<Scenario1_Discovery>
     {
         Scenario1_Discovery();
 
-        void OnNavigatedFrom(Windows::UI::Xaml::Navigation::NavigationEventArgs const& e);
+        void OnNavigatedFrom(NavigationEventArgs const& e);
 
-        Windows::Foundation::Collections::IObservableVector<Windows::Foundation::IInspectable> KnownDevices()
+        IObservableVector<IInspectable> KnownDevices()
         {
-            return m_knownDevices;
+            return knownDevices.as<IObservableVector<IInspectable>>();
         }
 
-        void EnumerateButton_Click();
-        fire_and_forget PairButton_Click();
+        void EnumerateButton_Click(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
+        fire_and_forget PairButton_Click(IInspectable const& sender, Windows::UI::Xaml::RoutedEventArgs const& e);
         bool Not(bool value) { return !value; }
 
     private:
         SDKTemplate::MainPage rootPage{ MainPage::Current() };
-        Windows::Foundation::Collections::IObservableVector<Windows::Foundation::IInspectable> m_knownDevices = single_threaded_observable_vector<Windows::Foundation::IInspectable>();
-        std::vector<Windows::Devices::Enumeration::DeviceInformation> UnknownDevices;
-        Windows::Devices::Enumeration::DeviceWatcher deviceWatcher{ nullptr };
+        IObservableVector<SDKTemplate::BluetoothLEDeviceDisplay> knownDevices = single_threaded_observable_vector<SDKTemplate::BluetoothLEDeviceDisplay>();
+        DeviceWatcher deviceWatcher{ nullptr };
         event_token deviceWatcherAddedToken;
         event_token deviceWatcherUpdatedToken;
         event_token deviceWatcherRemovedToken;
@@ -44,14 +49,15 @@ namespace winrt::SDKTemplate::implementation
 
         void StartBleDeviceWatcher();
         void StopBleDeviceWatcher();
-        std::tuple<SDKTemplate::BluetoothLEDeviceDisplay, uint32_t> FindBluetoothLEDeviceDisplay(hstring const& id);
-        std::vector<Windows::Devices::Enumeration::DeviceInformation>::iterator FindUnknownDevices(hstring const& id);
+        SDKTemplate::BluetoothLEDeviceDisplay FindBluetoothLEDeviceDisplay(hstring const& id);
+        uint32_t FindBluetoothLEDeviceDisplayIndex(hstring const& id);
+        static constexpr uint32_t invalid_vector_index = 0U - 1U;
 
-        fire_and_forget DeviceWatcher_Added(Windows::Devices::Enumeration::DeviceWatcher sender, Windows::Devices::Enumeration::DeviceInformation deviceInfo);
-        fire_and_forget DeviceWatcher_Updated(Windows::Devices::Enumeration::DeviceWatcher sender, Windows::Devices::Enumeration::DeviceInformationUpdate deviceInfoUpdate);
-        fire_and_forget DeviceWatcher_Removed(Windows::Devices::Enumeration::DeviceWatcher sender, Windows::Devices::Enumeration::DeviceInformationUpdate deviceInfoUpdate);
-        fire_and_forget DeviceWatcher_EnumerationCompleted(Windows::Devices::Enumeration::DeviceWatcher sender, Windows::Foundation::IInspectable const&);
-        fire_and_forget DeviceWatcher_Stopped(Windows::Devices::Enumeration::DeviceWatcher sender, Windows::Foundation::IInspectable const&);
+        fire_and_forget DeviceWatcher_Added(DeviceWatcher sender, DeviceInformation deviceInfo);
+        fire_and_forget DeviceWatcher_Updated(DeviceWatcher sender, DeviceInformationUpdate deviceInfoUpdate);
+        fire_and_forget DeviceWatcher_Removed(DeviceWatcher sender, DeviceInformationUpdate deviceInfoUpdate);
+        fire_and_forget DeviceWatcher_EnumerationCompleted(DeviceWatcher sender, IInspectable const&);
+        fire_and_forget DeviceWatcher_Stopped(DeviceWatcher sender, IInspectable const&);
     };
 }
 

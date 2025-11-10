@@ -1,4 +1,4 @@
-﻿//*********************************************************
+//*********************************************************
 //
 // Copyright (c) Microsoft. All rights reserved.
 // This code is licensed under the MIT License (MIT).
@@ -36,6 +36,7 @@ namespace
     [[maybe_unused]] void App_LaunchCompleted(LaunchActivatedEventArgs const&) { }
     [[maybe_unused]] void App_OnActivated(IActivatedEventArgs const&) { }
     [[maybe_unused]] void App_OnFileActivated(FileActivatedEventArgs const&) { }
+    [[maybe_unused]] void App_OnBackgroundActivated(BackgroundActivatedEventArgs const&) { } 
 }
 
 /// <summary>
@@ -125,6 +126,12 @@ void App::OnActivated(IActivatedEventArgs const& e)
 void App::OnFileActivated(FileActivatedEventArgs const& e)
 {
     App_OnFileActivated(e);
+}
+
+// Some samples want to handle in-process background activations.
+void App::OnBackgroundActivated(BackgroundActivatedEventArgs const& e)
+{
+    App_OnBackgroundActivated(e);
 }
 
 /// <summary>

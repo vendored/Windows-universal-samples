@@ -1,4 +1,4 @@
-﻿//*********************************************************
+//*********************************************************
 //
 // Copyright (c) Microsoft. All rights reserved.
 // This code is licensed under the MIT License (MIT).
@@ -100,7 +100,7 @@ namespace SDKTemplate
                 // Set the default language
                 rootFrame.Language = Windows.Globalization.ApplicationLanguages.Languages[0];
                 rootFrame.NavigationFailed += OnNavigationFailed;
-                
+
                 // Place the frame in the current Window
                 Window.Current.Content = rootFrame;
             }
@@ -118,7 +118,7 @@ namespace SDKTemplate
             throw new Exception("Failed to load Page " + e.SourcePageType.FullName);
         }
 
-        // Add any application contructor code in here.
+        // Add any application constructor code in here.
         partial void Construct();
 
         // Add any OnLaunched customization here.

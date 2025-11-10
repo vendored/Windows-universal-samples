@@ -10,10 +10,8 @@
 //*********************************************************
 
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
-using Windows.Devices.Bluetooth;
 using Windows.Devices.Enumeration;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
@@ -32,7 +30,6 @@ namespace SDKTemplate
         private MainPage rootPage = MainPage.Current;
 
         private ObservableCollection<BluetoothLEDeviceDisplay> KnownDevices = new ObservableCollection<BluetoothLEDeviceDisplay>();
-        private List<DeviceInformation> UnknownDevices = new List<DeviceInformation>();
 
         private DeviceWatcher deviceWatcher;
 
@@ -47,14 +44,14 @@ namespace SDKTemplate
             StopBleDeviceWatcher();
 
             // Save the selected device's ID for use in other scenarios.
-            var bleDeviceDisplay = ResultsListView.SelectedItem as BluetoothLEDeviceDisplay;
-            if (bleDeviceDisplay != null)
+            var deviceDisplay = ResultsListView.SelectedItem as BluetoothLEDeviceDisplay;
+            if (deviceDisplay != null)
             {
-                rootPage.SelectedBleDeviceId = bleDeviceDisplay.Id;
-                rootPage.SelectedBleDeviceName = bleDeviceDisplay.Name;
+                rootPage.SelectedBleDeviceId = deviceDisplay.Id;
+                rootPage.SelectedBleDeviceName = deviceDisplay.Name;
             }
         }
-        private void EnumerateButton_Click()
+        private void EnumerateButton_Click(object sender, RoutedEventArgs e)
         {
             if (deviceWatcher == null)
             {
@@ -77,7 +74,7 @@ namespace SDKTemplate
         #region Device discovery
 
         /// <summary>
-        /// Starts a device watcher that looks for all nearby Bluetooth devices (paired or unpaired). 
+        /// Starts a device watcher that looks for all nearby Bluetooth devices (paired or unpaired).
         /// Attaches event handlers to populate the device collection.
         /// </summary>
         private void StartBleDeviceWatcher()
@@ -135,23 +132,11 @@ namespace SDKTemplate
 
         private BluetoothLEDeviceDisplay FindBluetoothLEDeviceDisplay(string id)
         {
-            foreach (BluetoothLEDeviceDisplay bleDeviceDisplay in KnownDevices)
+            foreach (BluetoothLEDeviceDisplay deviceDisplay in KnownDevices)
             {
-                if (bleDeviceDisplay.Id == id)
+                if (deviceDisplay.Id == id)
                 {
-                    return bleDeviceDisplay;
-                }
-            }
-            return null;
-        }
-
-        private DeviceInformation FindUnknownDevices(string id)
-        {
-            foreach (DeviceInformation bleDeviceInfo in UnknownDevices)
-            {
-                if (bleDeviceInfo.Id == id)
-                {
-                    return bleDeviceInfo;
+                    return deviceDisplay;
                 }
             }
             return null;
@@ -172,18 +157,9 @@ namespace SDKTemplate
                         // Make sure device isn't already present in the list.
                         if (FindBluetoothLEDeviceDisplay(deviceInfo.Id) == null)
                         {
-                            if (deviceInfo.Name != string.Empty)
-                            {
-                                // If device has a friendly name display it immediately.
-                                KnownDevices.Add(new BluetoothLEDeviceDisplay(deviceInfo));
-                            }
-                            else
-                            {
-                                // Add it to a list in case the name gets updated later. 
-                                UnknownDevices.Add(deviceInfo);
-                            }
+                            // Add the device using the Bluetooth address. If the device has a friendly name, update it later.
+                            KnownDevices.Add(new BluetoothLEDeviceDisplay(deviceInfo));
                         }
-
                     }
                 }
             });
@@ -201,24 +177,16 @@ namespace SDKTemplate
                     // Protect against race condition if the task runs after the app stopped the deviceWatcher.
                     if (sender == deviceWatcher)
                     {
-                        BluetoothLEDeviceDisplay bleDeviceDisplay = FindBluetoothLEDeviceDisplay(deviceInfoUpdate.Id);
-                        if (bleDeviceDisplay != null)
+                        BluetoothLEDeviceDisplay deviceDisplay = FindBluetoothLEDeviceDisplay(deviceInfoUpdate.Id);
+                        if (deviceDisplay != null)
                         {
                             // Device is already being displayed - update UX.
-                            bleDeviceDisplay.Update(deviceInfoUpdate);
+                            deviceDisplay.Update(deviceInfoUpdate);
                             return;
                         }
-
-                        DeviceInformation deviceInfo = FindUnknownDevices(deviceInfoUpdate.Id);
-                        if (deviceInfo != null)
+                        else
                         {
-                            deviceInfo.Update(deviceInfoUpdate);
-                            // If device has been updated with a friendly name it's no longer unknown.
-                            if (deviceInfo.Name != String.Empty)
-                            {
-                                KnownDevices.Add(new BluetoothLEDeviceDisplay(deviceInfo));
-                                UnknownDevices.Remove(deviceInfo);
-                            }
+                            KnownDevices.Add(deviceDisplay);
                         }
                     }
                 }
@@ -232,22 +200,16 @@ namespace SDKTemplate
             {
                 lock (this)
                 {
-                    Debug.WriteLine(String.Format("Removed {0}{1}", deviceInfoUpdate.Id,""));
+                    Debug.WriteLine(String.Format("Removed {0}{1}", deviceInfoUpdate.Id, ""));
 
                     // Protect against race condition if the task runs after the app stopped the deviceWatcher.
                     if (sender == deviceWatcher)
                     {
                         // Find the corresponding DeviceInformation in the collection and remove it.
-                        BluetoothLEDeviceDisplay bleDeviceDisplay = FindBluetoothLEDeviceDisplay(deviceInfoUpdate.Id);
-                        if (bleDeviceDisplay != null)
+                        BluetoothLEDeviceDisplay deviceDisplay = FindBluetoothLEDeviceDisplay(deviceInfoUpdate.Id);
+                        if (deviceDisplay != null)
                         {
-                            KnownDevices.Remove(bleDeviceDisplay);
-                        }
-
-                        DeviceInformation deviceInfo = FindUnknownDevices(deviceInfoUpdate.Id);
-                        if (deviceInfo != null)
-                        {
-                            UnknownDevices.Remove(deviceInfo);
+                            KnownDevices.Remove(deviceDisplay);
                         }
                     }
                 }
@@ -287,7 +249,7 @@ namespace SDKTemplate
 
         private bool isBusy = false;
 
-        private async void PairButton_Click()
+        private async void PairButton_Click(object sender, RoutedEventArgs e)
         {
             // Do not allow a new Pair operation to start if an existing one is in progress.
             if (isBusy)
@@ -303,10 +265,10 @@ namespace SDKTemplate
             // customizing the pairing process, see the DeviceEnumerationAndPairing sample.
 
             // Capture the current selected item in case the user changes it while we are pairing.
-            var bleDeviceDisplay = ResultsListView.SelectedItem as BluetoothLEDeviceDisplay;
+            var deviceDisplay = ResultsListView.SelectedItem as BluetoothLEDeviceDisplay;
 
             // BT_Code: Pair the currently selected device.
-            DevicePairingResult result = await bleDeviceDisplay.DeviceInformation.Pairing.PairAsync();
+            DevicePairingResult result = await deviceDisplay.DeviceInformation.Pairing.PairAsync();
             rootPage.NotifyUser($"Pairing result = {result.Status}",
                 result.Status == DevicePairingResultStatus.Paired || result.Status == DevicePairingResultStatus.AlreadyPaired
                     ? NotifyType.StatusMessage

@@ -47,6 +47,9 @@ Specifically, this sample shows how to:
 - Query for supported characteristics
 - Read and write data
 - Subscribe to indicate and notify events
+- Detect and take advantage of the ability to advertise GATT Services with Bluetooth LE advertisements using the 1M and 2M PHYs
+- Update the advertising parameters for a GATT Service
+- Publish and operate a custom GATT Service in the background
 
 ## Server
 As of build 15003 and above, Bluetooth LE GATT Server APIs are available.
@@ -103,13 +106,16 @@ To obtain information about Microsoft Visual Studio and the tools for developing
 
 ## System requirements
 
-**Client:** Windows 10 Anniversary Edition
+Windows 10 Version 1703 (build 15063) for basic functionality.
 
-**Server:** Windows Server 2016 Technical Preview
-
-**Phone:** Windows 10 Anniversary Edition
+Windows 11 build 26100 for 1M and 2M PHY functionality.
 
 ## Build the sample
+
+**Note**: This sample requires Windows SDK version 10.0.26100.3916 or higher.
+Unfortunately, there is no way to detect the 3916 revision at build time.
+If you get errors about undefined members like `IsLowEnergyUncoded2MPhySupported`,
+make sure you have installed a high enough version of the Windows SDK.
 
 1. If you download the samples ZIP, be sure to unzip the entire archive, not just the folder with the sample you want to build. 
 2. Start Microsoft Visual Studio and select **File** \> **Open** \> **Project/Solution**.

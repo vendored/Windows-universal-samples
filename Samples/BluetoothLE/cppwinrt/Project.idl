@@ -19,8 +19,6 @@ namespace SDKTemplate
         Windows.Foundation.Collections.IObservableVector<Object> KnownDevices{ get; };
 
         Windows.UI.Xaml.Controls.ListView ResultsListView{ get; };
-        void EnumerateButton_Click();
-        void PairButton_Click();
         Boolean Not(Boolean value);
     }
 
@@ -28,22 +26,18 @@ namespace SDKTemplate
     runtimeclass Scenario2_Client : Windows.UI.Xaml.Controls.Page
     {
         Scenario2_Client();
-
-        void ConnectButton_Click();
-        void ServiceList_SelectionChanged();
-        void CharacteristicList_SelectionChanged();
-        void CharacteristicReadButton_Click();
-        void CharacteristicWriteButton_Click();
-        void CharacteristicWriteButtonInt_Click();
-        void ValueChangedSubscribeToggle_Click();
     }
 
     [default_interface]
     runtimeclass Scenario3_ServerForeground : Windows.UI.Xaml.Controls.Page
     {
         Scenario3_ServerForeground();
+    }
 
-        void PublishButton_ClickAsync();
+    [default_interface]
+    runtimeclass Scenario4_ServerBackground : Windows.UI.Xaml.Controls.Page
+    {
+        Scenario4_ServerBackground();
     }
 
     /// <summary>
@@ -65,4 +59,12 @@ namespace SDKTemplate
 
         void Update(Windows.Devices.Enumeration.DeviceInformationUpdate deviceInfoUpdate);
     };
+
+    // Since we run the calculator server as an in-process background task,
+    // this declaration is not required. However, we leave it here to make it easier
+    // to move the task out-of-process (where the declaration becomes required).
+    runtimeclass CalculatorServerBackgroundTask : [default] Windows.ApplicationModel.Background.IBackgroundTask
+    {
+        CalculatorServerBackgroundTask();
+    }
 }

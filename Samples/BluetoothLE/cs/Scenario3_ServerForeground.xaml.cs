@@ -11,11 +11,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Windows.ApplicationModel.Core;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
-using Windows.Foundation;
-using Windows.Storage.Streams;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -23,7 +20,7 @@ using Windows.UI.Xaml.Navigation;
 
 namespace SDKTemplate
 {
-    // This scenario declares support for a calculator service. 
+    // This scenario declares support for a calculator service.
     // Remote clients (including this sample on another machine) can supply:
     // - Operands 1 and 2
     // - an operator (+,-,*,/)
@@ -32,27 +29,28 @@ namespace SDKTemplate
     {
         private MainPage rootPage = MainPage.Current;
 
-        GattServiceProvider serviceProvider;
-
-        private GattLocalCharacteristic op1Characteristic;
-        private int operand1Received = 0;
-
-        private GattLocalCharacteristic op2Characteristic;
-        private int operand2Received = 0;
-
+        // Managing the service.
+        private GattServiceProvider serviceProvider;
+        private GattLocalCharacteristic operand1Characteristic;
+        private GattLocalCharacteristic operand2Characteristic;
         private GattLocalCharacteristic operatorCharacteristic;
-        CalculatorOperators operatorReceived = 0;
-
         private GattLocalCharacteristic resultCharacteristic;
-        private int resultVal = 0;
+        private GattServiceProviderAdvertisingParameters advertisingParameters;
 
-        private bool peripheralSupported;
+        // Implementing the service.
+        private int operand1Value = 0;
+        private int operand2Value = 0;
+        CalculatorOperators operatorValue = 0;
+        private int resultValue = 0;
+
+        private bool navigatedTo = false;
+        private bool startingService = false; // reentrancy protection
 
         private enum CalculatorCharacteristics
         {
             Operand1 = 1,
             Operand2 = 2,
-            Operator = 3
+            Operator = 3,
         }
 
         private enum CalculatorOperators
@@ -60,30 +58,68 @@ namespace SDKTemplate
             Add = 1,
             Subtract = 2,
             Multiply = 3,
-            Divide = 4
+            Divide = 4,
         }
 
         #region UI Code
         public Scenario3_ServerForeground()
         {
             InitializeComponent();
+
+            advertisingParameters = new GattServiceProviderAdvertisingParameters
+            {
+                // IsDiscoverable determines whether a remote device can query the local device for support
+                // of this service
+                IsDiscoverable = true
+            };
+
+            ServiceIdRun.Text = Constants.CalculatorServiceUuid.ToString();
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            peripheralSupported = await CheckPeripheralRoleSupportAsync();
-            if (peripheralSupported)
+            navigatedTo = true;
+
+            // BT_Code: New for Creator's Update - Bluetooth adapter has properties of the local BT radio.
+            BluetoothAdapter adapter = await BluetoothAdapter.GetDefaultAsync();
+
+            if (adapter != null && adapter.IsPeripheralRoleSupported)
             {
+                // BT_Code: Specify that the server advertises as connectable.
+                // IsConnectable determines whether a call to publish will attempt to start advertising and
+                // put the service UUID in the ADV packet (best effort)
+                advertisingParameters.IsConnectable = true;
+
                 ServerPanel.Visibility = Visibility.Visible;
             }
             else
             {
+                // No Bluetooth adapter or adapter cannot act as server.
                 PeripheralWarning.Visibility = Visibility.Visible;
+            }
+
+            // Check whether the local Bluetooth adapter and Windows support 2M and Coded PHY.
+            if (!FeatureDetection.AreExtendedAdvertisingPhysAndScanParametersSupported)
+            {
+                Publishing2MPHYReasonRun.Text = "(Not supported by this version of Windows)";
+            }
+            else if (adapter != null && adapter.IsLowEnergyUncoded2MPhySupported)
+            {
+                Publishing2MPHY.IsEnabled = true;
+            }
+            else
+            {
+                Publishing2MPHYReasonRun.Text = "(Not supported by default Bluetooth adapter)";
             }
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
+            navigatedTo = false;
+
+            UnsubscribeServiceEvents();
+            // Do not null out the characteristics because tasks may still be using them.
+
             if (serviceProvider != null)
             {
                 if (serviceProvider.AdvertisementStatus != GattServiceProviderAdvertisementStatus.Stopped)
@@ -94,170 +130,180 @@ namespace SDKTemplate
             }
         }
 
-        private async void PublishButton_ClickAsync()
+        private async void PublishButton_Click(object sender, RoutedEventArgs e)
         {
-            // Server not initialized yet - initialize it and start publishing
             if (serviceProvider == null)
             {
-                var serviceStarted = await ServiceProviderInitAsync();
-                if (serviceStarted)
+                // Server not initialized yet - initialize it and start publishing
+                // Don't try to start if already starting.
+                if (startingService)
+                {
+                    return;
+                }
+                PublishButton.Content = "Starting...";
+                startingService = true;
+                await CreateAndAdvertiseServiceAsync();
+                startingService = false;
+                if (serviceProvider != null)
                 {
                     rootPage.NotifyUser("Service successfully started", NotifyType.StatusMessage);
-                    PublishButton.Content = "Stop Service";
                 }
                 else
                 {
+                    UnsubscribeServiceEvents();
                     rootPage.NotifyUser("Service not started", NotifyType.ErrorMessage);
                 }
             }
             else
             {
-                // BT_Code: Stops advertising support for custom GATT Service 
+                // BT_Code: Stops advertising support for custom GATT Service
+                UnsubscribeServiceEvents();
                 serviceProvider.StopAdvertising();
                 serviceProvider = null;
-                PublishButton.Content = "Start Service";
+            }
+            PublishButton.Content = serviceProvider == null ? "Start Service": "Stop Service";
+        }
+
+        private void Publishing2MPHY_Click(object sender, RoutedEventArgs e)
+        {
+            // Update the advertising parameters based on the checkbox.
+            bool shouldAdvertise2MPHY = Publishing2MPHY.IsChecked.Value;
+            advertisingParameters.UseLowEnergyUncoded1MPhyAsSecondaryPhy = !shouldAdvertise2MPHY;
+            advertisingParameters.UseLowEnergyUncoded2MPhyAsSecondaryPhy = shouldAdvertise2MPHY;
+
+            if (serviceProvider != null)
+            {
+                // Reconfigure the advertising parameters on the fly.
+                serviceProvider.UpdateAdvertisingParameters(advertisingParameters);
             }
         }
 
-        private async void UpdateUX()
+        private void UnsubscribeServiceEvents()
         {
-            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, () =>
+            if (operand1Characteristic != null)
             {
-                switch (operatorReceived)
-                {
-                    case CalculatorOperators.Add:
-                        OperationText.Text = "+";
-                        break;
-                    case CalculatorOperators.Subtract:
-                        OperationText.Text = "-";
-                        break;
-                    case CalculatorOperators.Multiply:
-                        OperationText.Text = "*";
-                        break;
-                    case CalculatorOperators.Divide:
-                        OperationText.Text = "/";
-                        break;
-                    default:
-                        OperationText.Text = "INV";
-                        break;
-                }
-                Operand1Text.Text = operand1Received.ToString();
-                Operand2Text.Text = operand2Received.ToString();
-                resultVal = ComputeResult();
-                ResultText.Text = resultVal.ToString();
-            });
+                operand1Characteristic.WriteRequested -= Op1Characteristic_WriteRequestedAsync;
+            }
+            if (operand2Characteristic != null)
+            {
+                operand2Characteristic.WriteRequested -= Op2Characteristic_WriteRequestedAsync;
+            }
+            if (operatorCharacteristic != null)
+            {
+                operatorCharacteristic.WriteRequested -= OperatorCharacteristic_WriteRequestedAsync;
+            }
+            if (resultCharacteristic != null)
+            {
+                resultCharacteristic.ReadRequested -= ResultCharacteristic_ReadRequestedAsync;
+                resultCharacteristic.SubscribedClientsChanged -= ResultCharacteristic_SubscribedClientsChanged;
+            }
+            if (serviceProvider != null)
+            {
+                serviceProvider.AdvertisementStatusChanged -= ServiceProvider_AdvertisementStatusChanged;
+            }
+        }
+
+        private void UpdateUI()
+        {
+            string operationText = "N/A";
+            switch (operatorValue)
+            {
+                case CalculatorOperators.Add:
+                    operationText = "+";
+                    break;
+                case CalculatorOperators.Subtract:
+                    operationText = "\u2212"; // Minus sign
+                    break;
+                case CalculatorOperators.Multiply:
+                    operationText = "\u00d7"; // Multiplication sign
+                    break;
+                case CalculatorOperators.Divide:
+                    operationText = "\u00f7"; // Division sign
+                    break;
+            }
+            OperationTextBox.Text = operationText;
+            Operand1TextBox.Text = operand1Value.ToString();
+            Operand2TextBox.Text = operand2Value.ToString();
+            ResultTextBox.Text = resultValue.ToString();
         }
         #endregion
-
-        private async Task<bool> CheckPeripheralRoleSupportAsync()
-        {
-            // BT_Code: New for Creator's Update - Bluetooth adapter has properties of the local BT radio.
-            var localAdapter = await BluetoothAdapter.GetDefaultAsync();
-
-            if (localAdapter != null)
-            {
-                return localAdapter.IsPeripheralRoleSupported;
-            }
-            else
-            {
-                // Bluetooth is not turned on 
-                return false;
-            }
-        }
 
         /// <summary>
         /// Uses the relevant Service/Characteristic UUIDs to initialize, hook up event handlers and start a service on the local system.
         /// </summary>
         /// <returns></returns>
-        private async Task<bool> ServiceProviderInitAsync()
+        private async Task CreateAndAdvertiseServiceAsync()
         {
             // BT_Code: Initialize and starting a custom GATT Service using GattServiceProvider.
-            GattServiceProviderResult serviceResult = await GattServiceProvider.CreateAsync(Constants.CalcServiceUuid);
-            if (serviceResult.Error == BluetoothError.Success)
-            {
-                serviceProvider = serviceResult.ServiceProvider;
-            }
-            else
+            GattServiceProviderResult serviceResult = await GattServiceProvider.CreateAsync(Constants.CalculatorServiceUuid);
+            if (serviceResult.Error != BluetoothError.Success)
             {
                 rootPage.NotifyUser($"Could not create service provider: {serviceResult.Error}", NotifyType.ErrorMessage);
-                return false;
+                return;
             }
+            GattServiceProvider provider = serviceResult.ServiceProvider;
 
-            GattLocalCharacteristicResult result = await serviceProvider.Service.CreateCharacteristicAsync(Constants.Op1CharacteristicUuid, Constants.gattOperandParameters);
-            if (result.Error == BluetoothError.Success)
-            {
-                op1Characteristic = result.Characteristic;
-            }
-            else
+            GattLocalCharacteristicResult result = await provider.Service.CreateCharacteristicAsync(
+                Constants.Operand1CharacteristicUuid, Constants.gattOperand1Parameters);
+            if (result.Error != BluetoothError.Success)
             {
                 rootPage.NotifyUser($"Could not create operand1 characteristic: {result.Error}", NotifyType.ErrorMessage);
-                return false;
+                return;
             }
-            op1Characteristic.WriteRequested += Op1Characteristic_WriteRequestedAsync;
+            operand1Characteristic = result.Characteristic;
+            operand1Characteristic.WriteRequested += Op1Characteristic_WriteRequestedAsync;
 
-            result = await serviceProvider.Service.CreateCharacteristicAsync(Constants.Op2CharacteristicUuid, Constants.gattOperandParameters);
-            if (result.Error == BluetoothError.Success)
-            {
-                op2Characteristic = result.Characteristic;
-            }
-            else
+            result = await provider.Service.CreateCharacteristicAsync(
+                Constants.Operand2CharacteristicUuid, Constants.gattOperand2Parameters);
+            if (result.Error != BluetoothError.Success)
             {
                 rootPage.NotifyUser($"Could not create operand2 characteristic: {result.Error}", NotifyType.ErrorMessage);
-                return false;
+                return;
             }
 
-            op2Characteristic.WriteRequested += Op2Characteristic_WriteRequestedAsync;
+            operand2Characteristic = result.Characteristic;
+            operand2Characteristic.WriteRequested += Op2Characteristic_WriteRequestedAsync;
 
-            result = await serviceProvider.Service.CreateCharacteristicAsync(Constants.OperatorCharacteristicUuid, Constants.gattOperatorParameters);
-            if (result.Error == BluetoothError.Success)
-            {
-                operatorCharacteristic = result.Characteristic;
-            }
-            else
+            result = await provider.Service.CreateCharacteristicAsync(
+                Constants.OperatorCharacteristicUuid, Constants.gattOperatorParameters);
+            if (result.Error != BluetoothError.Success)
             {
                 rootPage.NotifyUser($"Could not create operator characteristic: {result.Error}", NotifyType.ErrorMessage);
-                return false;
+                return;
             }
 
+            operatorCharacteristic = result.Characteristic;
             operatorCharacteristic.WriteRequested += OperatorCharacteristic_WriteRequestedAsync;
 
-            // Add presentation format - 32-bit unsigned integer, with exponent 0, the unit is unitless, with no company description
-            GattPresentationFormat intFormat = GattPresentationFormat.FromParts(
-                GattPresentationFormatTypes.UInt32,
-                PresentationFormats.Exponent,
-                Convert.ToUInt16(PresentationFormats.Units.Unitless),
-                Convert.ToByte(PresentationFormats.NamespaceId.BluetoothSigAssignedNumber),
-                PresentationFormats.Description);
-
-            Constants.gattResultParameters.PresentationFormats.Add(intFormat);
-
-            result = await serviceProvider.Service.CreateCharacteristicAsync(Constants.ResultCharacteristicUuid, Constants.gattResultParameters);
-            if (result.Error == BluetoothError.Success)
-            {
-                resultCharacteristic = result.Characteristic;
-            }
-            else
+            result = await provider.Service.CreateCharacteristicAsync(Constants.ResultCharacteristicUuid, Constants.gattResultParameters);
+            if (result.Error != BluetoothError.Success)
             {
                 rootPage.NotifyUser($"Could not create result characteristic: {result.Error}", NotifyType.ErrorMessage);
-                return false;
+                return;
             }
+
+            resultCharacteristic = result.Characteristic;
             resultCharacteristic.ReadRequested += ResultCharacteristic_ReadRequestedAsync;
             resultCharacteristic.SubscribedClientsChanged += ResultCharacteristic_SubscribedClientsChanged;
 
-            // BT_Code: Indicate if your sever advertises as connectable and discoverable.
-            GattServiceProviderAdvertisingParameters advParameters = new GattServiceProviderAdvertisingParameters
-            {
-                // IsConnectable determines whether a call to publish will attempt to start advertising and 
-                // put the service UUID in the ADV packet (best effort)
-                IsConnectable = peripheralSupported,
+            // The advertising parameters were updated at various points in this class.
+            // IsDiscoverable was set in the class constructor.
+            // IsConnectable was set in OnNavigatedTo when we confirmed that the device supports peripheral role.
+            // UseLowEnergyUncoded1MPhy/2MPhyAsSecondaryPhy was set when the user toggled the Publishing2MPHY button.
 
-                // IsDiscoverable determines whether a remote device can query the local device for support 
-                // of this service
-                IsDiscoverable = true
-            };
-            serviceProvider.AdvertisementStatusChanged += ServiceProvider_AdvertisementStatusChanged;
-            serviceProvider.StartAdvertising(advParameters);
-            return true;
+            // Last chance: Did the user navigate away while we were doing all this work?
+            // If so, then abandon our work without starting the provider.
+            // Must do this after the last await. (Could also do it after earlier awaits.)
+            if (!navigatedTo)
+            {
+                return;
+            }
+
+            provider.AdvertisementStatusChanged += ServiceProvider_AdvertisementStatusChanged;
+            provider.StartAdvertising(advertisingParameters);
+
+            // Let the other methods know that we have a provider that is advertising.
+            serviceProvider = provider;
         }
 
         private void ResultCharacteristic_SubscribedClientsChanged(GattLocalCharacteristic sender, object args)
@@ -277,10 +323,10 @@ namespace SDKTemplate
 
         private async void ResultCharacteristic_ReadRequestedAsync(GattLocalCharacteristic sender, GattReadRequestedEventArgs args)
         {
-            // BT_Code: Process a read request. 
+            // BT_Code: Process a read request.
             using (args.GetDeferral())
             {
-                // Get the request information.  This requires device access before an app can access the device's request. 
+                // Get the request information.  This requires device access before an app can access the device's request.
                 GattReadRequest request = await args.GetRequestAsync();
                 if (request == null)
                 {
@@ -289,10 +335,6 @@ namespace SDKTemplate
                     return;
                 }
 
-                var writer = new DataWriter();
-                writer.ByteOrder = ByteOrder.LittleEndian;
-                writer.WriteInt32(resultVal);
-
                 // Can get details about the request such as the size and offset, as well as monitor the state to see if it has been completed/cancelled externally.
                 // request.Offset
                 // request.Length
@@ -300,50 +342,44 @@ namespace SDKTemplate
                 // request.StateChanged += <Handler>
 
                 // Gatt code to handle the response
-                request.RespondWithValue(writer.DetachBuffer());
+                request.RespondWithValue(BufferHelpers.BufferFromInt32(resultValue));
             }
         }
 
-        private int ComputeResult()
+        private void ComputeResult()
         {
-            Int32 computedValue = 0;
-            switch (operatorReceived)
+            switch (operatorValue)
             {
                 case CalculatorOperators.Add:
-                    computedValue = operand1Received + operand2Received;
+                    resultValue = operand1Value + operand2Value;
                     break;
                 case CalculatorOperators.Subtract:
-                    computedValue = operand1Received - operand2Received;
+                    resultValue = operand1Value - operand2Value;
                     break;
                 case CalculatorOperators.Multiply:
-                    computedValue = operand1Received * operand2Received;
+                    resultValue = operand1Value * operand2Value;
                     break;
                 case CalculatorOperators.Divide:
-                    if (operand2Received == 0 || (operand1Received == -0x80000000 && operand2Received == -1))
+                    if (operand2Value == 0 || (operand1Value == Int32.MinValue && operand2Value == -1))
                     {
                         rootPage.NotifyUser("Division overflow", NotifyType.ErrorMessage);
                     }
                     else
                     {
-                        computedValue = operand1Received / operand2Received;
+                        resultValue = operand1Value / operand2Value;
                     }
                     break;
                 default:
                     rootPage.NotifyUser("Invalid Operator", NotifyType.ErrorMessage);
                     break;
             }
-            NotifyClientDevices(computedValue);
-            return computedValue;
+            NotifyClientDevices(resultValue);
         }
 
         private async void NotifyClientDevices(int computedValue)
         {
-            var writer = new DataWriter();
-            writer.ByteOrder = ByteOrder.LittleEndian;
-            writer.WriteInt32(computedValue);
-
             // BT_Code: Returns a collection of all clients that the notification was attempted and the result.
-            IReadOnlyList<GattClientNotificationResult> results = await resultCharacteristic.NotifyValueAsync(writer.DetachBuffer());
+            IReadOnlyList<GattClientNotificationResult> results = await resultCharacteristic.NotifyValueAsync(BufferHelpers.BufferFromInt32(computedValue));
 
             rootPage.NotifyUser($"Sent value {computedValue} to clients.", NotifyType.StatusMessage);
             foreach (var result in results)
@@ -396,9 +432,11 @@ namespace SDKTemplate
                 if (request == null)
                 {
                     // No access allowed to the device.  Application should indicate this to the user.
-                    return;
                 }
-                ProcessWriteCharacteristic(request, CalculatorCharacteristics.Operator);
+                else
+                {
+                    ProcessWriteCharacteristic(request, CalculatorCharacteristics.Operator);
+                }
             }
         }
 
@@ -407,9 +445,11 @@ namespace SDKTemplate
         /// </summary>
         /// <param name="request"></param>
         /// <param name="opCode">Operand (1 or 2) and Operator (3)</param>
-        private void ProcessWriteCharacteristic(GattWriteRequest request, CalculatorCharacteristics opCode)
+        private async void ProcessWriteCharacteristic(GattWriteRequest request, CalculatorCharacteristics opCode)
         {
-            if (request.Value.Length != 4)
+            int? val = BufferHelpers.Int32FromBuffer(request.Value);
+
+            if (val == null)
             {
                 // Input is the wrong length. Respond with a protocol error if requested.
                 if (request.Option == GattWriteOption.WriteWithResponse)
@@ -419,20 +459,16 @@ namespace SDKTemplate
                 return;
             }
 
-            var reader = DataReader.FromBuffer(request.Value);
-            reader.ByteOrder = ByteOrder.LittleEndian;
-            int val = reader.ReadInt32();
-
             switch (opCode)
             {
                 case CalculatorCharacteristics.Operand1:
-                    operand1Received = val;
+                    operand1Value = val.Value;
                     break;
                 case CalculatorCharacteristics.Operand2:
-                    operand2Received = val;
+                    operand2Value = val.Value;
                     break;
                 case CalculatorCharacteristics.Operator:
-                    if (!Enum.IsDefined(typeof(CalculatorOperators), val))
+                    if (!Enum.IsDefined(typeof(CalculatorOperators), val.Value))
                     {
                         if (request.Option == GattWriteOption.WriteWithResponse)
                         {
@@ -440,7 +476,7 @@ namespace SDKTemplate
                         }
                         return;
                     }
-                    operatorReceived = (CalculatorOperators)val;
+                    operatorValue = (CalculatorOperators)val.Value;
                     break;
             }
             // Complete the request if needed
@@ -449,7 +485,9 @@ namespace SDKTemplate
                 request.Respond();
             }
 
-            UpdateUX();
+            ComputeResult();
+
+            await Dispatcher.RunAsync(CoreDispatcherPriority.Normal, UpdateUI);
         }
     }
 }

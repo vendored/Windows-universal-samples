@@ -12,6 +12,7 @@
     <Page Include="..\shared\Scenario1_Discovery.xaml" />
     <Page Include="..\shared\Scenario2_Client.xaml" />
     <Page Include="..\shared\Scenario3_ServerForeground.xaml" />
+    <Page Include="..\shared\Scenario4_ServerBackground.xaml" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="$(SharedContentDir)\cppwinrt\MainPage.idl" />
@@ -40,6 +41,7 @@
     <ClInclude Include="Scenario2_Client.h" />
     <ClInclude Include="Scenario3_ServerForeground.h" />
     <ClInclude Include="PresentationFormats.h" />
+    <ClInclude Include="CalculatorServerBackgroundTask.h" />
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest" />

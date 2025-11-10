@@ -1,0 +1,50 @@
+//*********************************************************
+//
+// Copyright (c) Microsoft. All rights reserved.
+// This code is licensed under the MIT License (MIT).
+// THIS CODE IS PROVIDED *AS IS* WITHOUT WARRANTY OF
+// ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY
+// IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR
+// PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.
+//
+//*********************************************************
+
+namespace SDKTemplate
+{
+    [default_interface]
+    runtimeclass Scenario1_Watcher : Windows.UI.Xaml.Controls.Page
+    {
+        Scenario1_Watcher();
+    }
+
+    [default_interface]
+    runtimeclass Scenario2_Publisher : Windows.UI.Xaml.Controls.Page
+    {
+        Scenario2_Publisher();
+    }
+
+    [default_interface]
+    runtimeclass Scenario3_BackgroundWatcher : Windows.UI.Xaml.Controls.Page
+    {
+        Scenario3_BackgroundWatcher();
+    }
+
+    [default_interface]
+    runtimeclass Scenario4_BackgroundPublisher : Windows.UI.Xaml.Controls.Page
+    {
+        Scenario4_BackgroundPublisher();
+    }
+
+    // Runtime class declarations for in-process background tasks are not required.
+    // However, we leave them here to make it easier to move the task out-of-process
+    // (where the declaration becomes required).
+    runtimeclass AdvertisementWatcherTask : [default]Windows.ApplicationModel.Background.IBackgroundTask
+    {
+        AdvertisementWatcherTask();
+    }
+
+    runtimeclass AdvertisementPublisherTask : [default] Windows.ApplicationModel.Background.IBackgroundTask
+    {
+        AdvertisementPublisherTask();
+    }
+}

@@ -21,7 +21,7 @@
   </Properties>
 
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.10240.0" MaxVersionTested="10.0.22621.0" />
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
   </Dependencies>
 
   <Resources>
@@ -32,18 +32,20 @@
     <Application Id="App"
       Executable="$targetnametoken$.exe"
       EntryPoint="BluetoothAdvertisementCS.App">
+      <!-- Example declarations of out-of-process background tasks
       <Extensions>
-        <Extension Category="windows.backgroundTasks" EntryPoint="BackgroundTasks.AdvertisementWatcherTask">
+        <Extension Category="windows.backgroundTasks" EntryPoint="Tasks.AdvertisementWatcherTask">
           <BackgroundTasks>
             <Task Type="bluetooth"/>
           </BackgroundTasks>
         </Extension>
-        <Extension Category="windows.backgroundTasks" EntryPoint="BackgroundTasks.AdvertisementPublisherTask">
+        <Extension Category="windows.backgroundTasks" EntryPoint="Tasks.AdvertisementPublisherTask">
           <BackgroundTasks>
             <Task Type="bluetooth"/>
           </BackgroundTasks>
         </Extension>
       </Extensions>
+      -->
       <uap:VisualElements
         DisplayName="Bluetooth Advertisement C# Sample"
         Square150x150Logo="Assets\SquareTile-sdk.png"

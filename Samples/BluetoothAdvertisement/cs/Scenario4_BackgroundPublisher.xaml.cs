@@ -10,49 +10,42 @@
 //*********************************************************
 
 using System;
-using System.Collections.Generic;
+using Windows.ApplicationModel.Background;
+using Windows.Devices.Bluetooth;
+using Windows.Devices.Bluetooth.Advertisement;
+using Windows.Security.Cryptography;
 using Windows.Storage;
-using Windows.Storage.Streams;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Navigation;
 
-using Windows.ApplicationModel.Background;
-using Windows.Devices.Bluetooth;
-using Windows.Devices.Bluetooth.Advertisement;
-using Windows.Devices.Bluetooth.Background;
-
-using SDKTemplate;
-
-namespace BluetoothAdvertisement
+namespace SDKTemplate
 {
-    /// <summary>
-    /// An empty page that can be used on its own or navigated to within a Frame.
-    /// </summary>
     public sealed partial class Scenario4_BackgroundPublisher : Page
     {
+        // A pointer back to the main page is required to display status messages.
+        private MainPage rootPage = MainPage.Current;
+
         // The background task registration for the background advertisement publisher
         private IBackgroundTaskRegistration taskRegistration;
+
         // The publisher trigger used to configure the background task registration
-        private BluetoothLEAdvertisementPublisherTrigger trigger;
+        private BluetoothLEAdvertisementPublisherTrigger publisherTrigger;
+
+        // Capability of the Bluetooth radio adapter.
+        private bool supportsAdvertisingInDifferentPhy = false;
+
         // A name is given to the task in order for it to be identifiable across context.
-        private string taskName = "Scenario4_BackgroundTask";
-        // Entry point for the background task.
-        private string taskEntryPoint = "BackgroundTasks.AdvertisementPublisherTask";
+        private string taskName = nameof(AdvertisementPublisherTask);
 
-        // A pointer back to the main page is required to display status messages.
-        private MainPage rootPage;
+        const int E_DEVICE_NOT_AVAILABLE = unchecked((int)0x800710df); // HRESULT_FROM_WIN32(ERROR_DEVICE_NOT_AVAILABLE)
 
-        /// <summary>
-        /// Initializes the singleton application object.  This is the first line of authored code
-        /// executed, and as such is the logical equivalent of main() or WinMain().
-        /// </summary>
         public Scenario4_BackgroundPublisher()
         {
-            this.InitializeComponent();
+            InitializeComponent();
 
-            // Create and initialize a new trigger to configure it.
-            trigger = new BluetoothLEAdvertisementPublisherTrigger();
+            // Create and initialize a new publisherTrigger to configure it.
+            publisherTrigger = new BluetoothLEAdvertisementPublisherTrigger();
 
             // We need to add some payload to the advertisement. A publisher without any payload
             // or with invalid ones cannot be started. We only need to configure the payload once
@@ -67,20 +60,16 @@ namespace BluetoothAdvertisement
 
             // Finally set the data payload within the manufacturer-specific section
             // Here, use a 16-bit UUID: 0x1234 -> {0x34, 0x12} (little-endian)
-            var writer = new DataWriter();
             UInt16 uuidData = 0x1234;
-            writer.WriteUInt16(uuidData);
 
             // Make sure that the buffer length can fit within an advertisement payload. Otherwise you will get an exception.
-            manufacturerData.Data = writer.DetachBuffer();
+            manufacturerData.Data = CryptographicBuffer.CreateFromByteArray(BitConverter.GetBytes(uuidData));
 
             // Add the manufacturer data to the advertisement publisher:
-            trigger.Advertisement.ManufacturerData.Add(manufacturerData);
+            publisherTrigger.Advertisement.ManufacturerData.Add(manufacturerData);
 
             // Display the information about the published payload
-            PublisherPayloadBlock.Text = string.Format("Published payload information: CompanyId=0x{0}, ManufacturerData=0x{1}",
-                manufacturerData.CompanyId.ToString("X"),
-                uuidData.ToString("X"));
+            PublisherPayloadBlock.Text = $"Published payload information: {Utilities.FormatManufacturerData(manufacturerData)}";
 
             // Reset the displayed status of the publisher
             PublisherStatusBlock.Text = "";
@@ -93,34 +82,42 @@ namespace BluetoothAdvertisement
         /// </summary>
         /// <param name="eventArgs">Event data that describes how this page was reached. The Parameter
         /// property is typically used to configure the page.</param>
-        protected override void OnNavigatedTo(NavigationEventArgs e)
-        {            
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
+        {
             rootPage = MainPage.Current;
 
-            // Get the existing task if already registered
-            if (taskRegistration == null)
+            // If there is an existing task registration, subscribe to its completion event.
+            FindTaskRegistration();
+            if (taskRegistration != null)
             {
-                // Find the task if we previously registered it
-                foreach (var task in BackgroundTaskRegistration.AllTasks.Values)
+                taskRegistration.Completed += OnBackgroundTaskCompleted;
+            }
+            UpdateButtons();
+
+            // Attach handlers for suspension to stop the publisherTrigger when the App is suspended.
+            App.Current.Suspending += App_Suspending;
+            App.Current.Resuming += App_Resuming;
+
+            // Check whether the local Bluetooth adapter supports 2M and Coded PHY.
+            if (FeatureDetection.AreExtendedAdvertisingPhysAndScanParametersSupported)
+            {
+                var adapter = await BluetoothAdapter.GetDefaultAsync();
+
+                if (adapter != null)
                 {
-                    if (task.Name == taskName)
-                    {
-                        taskRegistration = task;
-                        taskRegistration.Completed += OnBackgroundTaskCompleted;
-                        break;
-                    }
+                    supportsAdvertisingInDifferentPhy = adapter.IsLowEnergyUncoded2MPhySupported && adapter.IsLowEnergyCodedPhySupported;
+                }
+                if (!supportsAdvertisingInDifferentPhy)
+                {
+                    PublisherTrigger2MAndCodedPhysReasonRun.Text = "(Not supported by default Bluetooth adapter)";
                 }
             }
             else
             {
-                taskRegistration.Completed += OnBackgroundTaskCompleted;
+                PublisherTrigger2MAndCodedPhysReasonRun.Text = "(Not supported by this version of Windows)";
             }
 
-            // Attach handlers for suspension to stop the publisher when the App is suspended.
-            App.Current.Suspending += App_Suspending;
-            App.Current.Resuming += App_Resuming;
-
-            rootPage.NotifyUser("Press Run to register publisher", NotifyType.StatusMessage);
+            UpdateButtons();
         }
 
         /// <summary>
@@ -137,14 +134,13 @@ namespace BluetoothAdvertisement
             App.Current.Suspending -= App_Suspending;
             App.Current.Resuming -= App_Resuming;
 
-            // Since the publisher is registered in the background, the background task will be triggered when the App is closed 
+            // Since the publisher is registered in the background, the background task will be triggered when the App is closed
             // or in the background. To unregister the task, press the Stop button.
             if (taskRegistration != null)
             {
                 // Always unregister the handlers to release the resources to prevent leaks.
                 taskRegistration.Completed -= OnBackgroundTaskCompleted;
             }
-            base.OnNavigatingFrom(e);
         }
 
         /// <summary>
@@ -161,7 +157,6 @@ namespace BluetoothAdvertisement
                 // Always unregister the handlers to release the resources to prevent leaks.
                 taskRegistration.Completed -= OnBackgroundTaskCompleted;
             }
-            rootPage.NotifyUser("App suspending.", NotifyType.StatusMessage);
         }
 
         /// <summary>
@@ -171,24 +166,14 @@ namespace BluetoothAdvertisement
         /// <param name="e"></param>
         private void App_Resuming(object sender, object e)
         {
-            // Get the existing task if already registered
-            if (taskRegistration == null)
-            {
-                // Find the task if we previously registered it
-                foreach (var task in BackgroundTaskRegistration.AllTasks.Values)
-                {
-                    if (task.Name == taskName)
-                    {
-                        taskRegistration = task;
-                        taskRegistration.Completed += OnBackgroundTaskCompleted;
-                        break;
-                    }
-                }
-            }
-            else
+            // If there is an existing task registration, subscribe to its completion event.
+            // (We unsubscribed at suspension.)
+            FindTaskRegistration();
+            if (taskRegistration != null)
             {
                 taskRegistration.Completed += OnBackgroundTaskCompleted;
             }
+            UpdateButtons();
         }
 
         /// <summary>
@@ -198,35 +183,55 @@ namespace BluetoothAdvertisement
         /// <param name="e">Event data describing the conditions that led to the event.</param>
         private async void RunButton_Click(object sender, RoutedEventArgs e)
         {
-            // Registering a background trigger if it is not already registered. It will start background advertising.
-            // First get the existing tasks to see if we already registered for it
+            // Applications registering for background publisherTrigger must request for permission.
+            BackgroundAccessStatus backgroundAccessStatus = await BackgroundExecutionManager.RequestAccessAsync();
+            // Here, we do not fail the registration even if the access is not granted. Instead, we allow
+            // the publisherTrigger to be registered and when the access is granted for the Application at a later time,
+            // the publisherTrigger will automatically start working again.
+
+            // First, configure the publisherTrigger.
+            if (supportsAdvertisingInDifferentPhy)
+            {
+                // By default, the BT radio uses the 1M PHY primary/1M PHY secondary configuration,
+                // which matches the Windows default configuration.
+                // If both coded and 2M PHYs are supported. Use the preferred configuration.
+                if (PublisherTrigger2MAndCodedPhysCheckBox.IsChecked.Value)
+                {
+                    publisherTrigger.UseExtendedFormat = true;
+                    publisherTrigger.PrimaryPhy = BluetoothLEAdvertisementPhyType.CodedPhy;
+                    publisherTrigger.SecondaryPhy = BluetoothLEAdvertisementPhyType.Uncoded2MPhy;
+                }
+                else
+                {
+                    publisherTrigger.UseExtendedFormat = false;
+                    publisherTrigger.PrimaryPhy = BluetoothLEAdvertisementPhyType.Uncoded1MPhy;
+                    publisherTrigger.SecondaryPhy = BluetoothLEAdvertisementPhyType.Uncoded1MPhy;
+                }
+            }
+
+            // Create a background task builder with the watcherTrigger and name.
+            // Omitting the task entry point results in an in-process background task.
+            // See App.OnBackgroundActivated for the in-process background task entry point.
+            var builder = new BackgroundTaskBuilder();
+            builder.SetTrigger(publisherTrigger);
+            builder.Name = taskName;
+
+            // Now perform the registration. This may throw if the system does not have a Bluetooth radio.
+            try
+            {
+                taskRegistration = builder.Register();
+            }
+            catch (Exception ex) when (ex.HResult == E_DEVICE_NOT_AVAILABLE)
+            {
+                rootPage.NotifyUser("Cannot register background task. Maybe the system does not have a Bluetooth radio.", NotifyType.ErrorMessage);
+            }
+
             if (taskRegistration != null)
             {
-                rootPage.NotifyUser("Background publisher already registered.", NotifyType.StatusMessage);
-                return;
-            }
-            else
-            {
-                // Applications registering for background trigger must request for permission.
-                BackgroundAccessStatus backgroundAccessStatus = await BackgroundExecutionManager.RequestAccessAsync();
-                // Here, we do not fail the registration even if the access is not granted. Instead, we allow 
-                // the trigger to be registered and when the access is granted for the Application at a later time,
-                // the trigger will automatically start working again.
-
-                // At this point we assume we haven't found any existing tasks matching the one we want to register
-                // First, configure the task entry point, trigger and name
-                var builder = new BackgroundTaskBuilder();
-                builder.TaskEntryPoint = taskEntryPoint;
-                builder.SetTrigger(trigger);
-                builder.Name = taskName;
-
-                // Now perform the registration.
-                taskRegistration = builder.Register();
-
                 // For this scenario, attach an event handler to display the result processed from the background task
                 taskRegistration.Completed += OnBackgroundTaskCompleted;
 
-                // Even though the trigger is registered successfully, it might be blocked. Notify the user if that is the case.
+                // Even though the publisherTrigger is registered successfully, it might be blocked. Notify the user if that is the case.
                 if ((backgroundAccessStatus == BackgroundAccessStatus.AlwaysAllowed) || (backgroundAccessStatus == BackgroundAccessStatus.AllowedSubjectToSystemPolicy))
                 {
                     rootPage.NotifyUser("Background publisher registered.", NotifyType.StatusMessage);
@@ -236,6 +241,7 @@ namespace BluetoothAdvertisement
                     rootPage.NotifyUser("Background tasks may be disabled for this app", NotifyType.ErrorMessage);
                 }
             }
+            UpdateButtons();
         }
 
         /// <summary>
@@ -246,18 +252,42 @@ namespace BluetoothAdvertisement
         private void StopButton_Click(object sender, RoutedEventArgs e)
         {
             // Unregistering the background task will stop advertising if this is the only client requesting
-            // First get the existing tasks to see if we already registered for it
-            if (taskRegistration != null)
+            taskRegistration.Unregister(true);
+            taskRegistration = null;
+            rootPage.NotifyUser("Background publisher unregistered.", NotifyType.StatusMessage);
+
+            UpdateButtons();
+        }
+
+        /// <summary>
+        /// If we have not already found a task registration, try to find it.
+        /// </summary>
+        private void FindTaskRegistration()
+        {
+            if (taskRegistration == null)
             {
-                taskRegistration.Unregister(true);
-                taskRegistration = null;
-                rootPage.NotifyUser("Background publisher unregistered.", NotifyType.StatusMessage);
+                // Look among the already-registered tasks for the one with the matching name.
+                foreach (var task in BackgroundTaskRegistration.AllTasks.Values)
+                {
+                    if (task.Name == taskName)
+                    {
+                        taskRegistration = task;
+                        break;
+                    }
+                }
             }
-            else
-            {
-                // At this point we assume we haven't found any existing tasks matching the one we want to unregister
-                rootPage.NotifyUser("No registered background publisher found.", NotifyType.StatusMessage);
-            }
+        }
+
+        /// <summary>
+        /// Enable and disable buttons based on the task registration state and based on what
+        /// features are supported.
+        /// </summary>
+        private void UpdateButtons()
+        {
+            bool isRegistered = taskRegistration != null;
+            PublisherTrigger2MAndCodedPhysCheckBox.IsEnabled = supportsAdvertisingInDifferentPhy && !isRegistered;
+            RunButton.IsEnabled = !isRegistered;
+            StopButton.IsEnabled = isRegistered;
         }
 
         /// <summary>
@@ -268,11 +298,11 @@ namespace BluetoothAdvertisement
         private async void OnBackgroundTaskCompleted(BackgroundTaskRegistration task, BackgroundTaskCompletedEventArgs eventArgs)
         {
             // We get the status changed processed by the background task
-            if (ApplicationData.Current.LocalSettings.Values.Keys.Contains(taskName))
+            if (ApplicationData.Current.LocalSettings.Values.TryGetValue(taskName, out object o) &&
+                o is string backgroundMessage)
             {
-                string backgroundMessage = (string) ApplicationData.Current.LocalSettings.Values[taskName];
                 // Serialize UI update to the main UI thread
-                await this.Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
+                await Dispatcher.RunAsync(Windows.UI.Core.CoreDispatcherPriority.Normal, () =>
                 {
                     // Display the status change
                     PublisherStatusBlock.Text = backgroundMessage;

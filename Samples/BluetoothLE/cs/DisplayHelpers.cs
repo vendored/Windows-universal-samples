@@ -87,7 +87,22 @@ namespace SDKTemplate
         public DeviceInformation DeviceInformation { get; private set; }
 
         public string Id => DeviceInformation.Id;
-        public string Name => DeviceInformation.Name;
+        public string Name
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(DeviceInformation.Name))
+                {
+                    return DeviceInformation.Name;
+                }
+                else if (DeviceInformation.Properties.TryGetValue("System.Devices.Aep.DeviceAddress", out object address))
+                {
+                    return address.ToString();
+                }
+
+                return Id.ToString();
+            }
+        }
         public bool IsPaired => DeviceInformation.Pairing.IsPaired;
         public bool IsConnected => (bool?)DeviceInformation.Properties["System.Devices.Aep.IsConnected"] == true;
         public bool IsConnectable => (bool?)DeviceInformation.Properties["System.Devices.Aep.Bluetooth.Le.IsConnectable"] == true;
@@ -308,20 +323,53 @@ namespace SDKTemplate
             return shortUuid;
         }
 
-        /// <summary>
-        ///     Converts from a buffer to a properly sized byte array
-        /// </summary>
-        /// <param name="buffer"></param>
-        /// <returns></returns>
-        public static byte[] ReadBufferToBytes(IBuffer buffer)
+        // Convert Bluetooth protocol error codes to human-readable strings for display.
+        private static readonly IDictionary<byte, string> protocolErrorTable = new Dictionary<byte, string>()
         {
-            var dataLength = buffer.Length;
-            var data = new byte[dataLength];
-            using (var reader = DataReader.FromBuffer(buffer))
+            [GattProtocolError.InvalidHandle] = "Invalid handle",
+            [GattProtocolError.ReadNotPermitted] = "Read not permitted",
+            [GattProtocolError.WriteNotPermitted] = "Write not permitted",
+            [GattProtocolError.InvalidPdu] = "Invalid PDU",
+            [GattProtocolError.InsufficientAuthentication] = "Insufficient authentication",
+            [GattProtocolError.RequestNotSupported] = "Request not supported",
+            [GattProtocolError.InvalidOffset] = "Invalid offset",
+            [GattProtocolError.InsufficientAuthorization] = "Insufficient authorization",
+            [GattProtocolError.PrepareQueueFull] = "Prepare queue full",
+            [GattProtocolError.AttributeNotFound] = "Attribute not found",
+            [GattProtocolError.AttributeNotLong] = "Attribute not long",
+            [GattProtocolError.InsufficientEncryptionKeySize] = "Encryption key size too short",
+            [GattProtocolError.InvalidAttributeValueLength] = "Invalid attribute value length",
+            [GattProtocolError.UnlikelyError] = "Unlikely error",
+            [GattProtocolError.InsufficientEncryption] = "Insufficient encryption",
+            [GattProtocolError.UnsupportedGroupType] = "Unsupported group type",
+            [GattProtocolError.InsufficientResources] = "Insufficient resources",
+        };
+        public static string FormatGattCommunicationStatus(GattCommunicationStatus status, byte? protocolError)
+        {
+            switch (status)
             {
-                reader.ReadBytes(data);
+                case GattCommunicationStatus.Success:
+                    return "Success";
+                case GattCommunicationStatus.Unreachable:
+                    return "Device is unreachable";
+                case GattCommunicationStatus.ProtocolError:
+                    if (protocolError.HasValue)
+                    {
+                        if (protocolErrorTable.TryGetValue(protocolError.Value, out string text))
+                        {
+                            return "Protocol error: " + text;
+                        }
+                        return $"Protocol error: {protocolError.Value}";
+                    }
+                    else
+                    {
+                        return "Protocol error";
+                    }
+                case GattCommunicationStatus.AccessDenied:
+                    return "Access denied";
+                default:
+                    return $"Code {(int)status}";
             }
-            return data;
         }
     }
 }

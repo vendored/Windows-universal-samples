@@ -1,0 +1,64 @@
+<!--
+//*********************************************************
+//
+// Copyright (c) Microsoft. All rights reserved.
+// This code is licensed under the MIT License (MIT).
+// THIS CODE IS PROVIDED *AS IS* WITHOUT WARRANTY OF
+// ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING ANY
+// IMPLIED WARRANTIES OF FITNESS FOR A PARTICULAR
+// PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.
+//
+//*********************************************************
+-->
+<Page
+    x:Class="SDKTemplate.Scenario1_Watcher"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:SDKTemplate"
+
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Margin="12,20,12,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <StackPanel Margin="0,0,0,10">
+            <TextBlock Style="{StaticResource ScenarioDescriptionTextStyle}" TextWrapping="Wrap">
+                Scanning for a particular LE advertisement containing a matching manufacturer data section and 
+                above a certain RSSI threshold. This scenario requires Scenario 2 or 4 to run on another Windows platform
+                in close proximity of this one.
+            </TextBlock>
+            <CheckBox x:Name="Watcher1MAndCodedPhysCheckBox" IsEnabled="False">
+                <TextBlock TextWrapping="Wrap">
+                    Scan using both the 1M and Coded PHYs <Run x:Name="Watcher1MAndCodedPhysReasonRun"/>
+                </TextBlock>
+            </CheckBox>
+            <CheckBox x:Name="WatcherPerformanceOptimizationsCheckBox" IsEnabled="False">
+                <TextBlock TextWrapping="Wrap">
+                    Use coexistence optimized Bluetooth LE advertisement scan parameters and offloading the filter to hardware
+                    <Run x:Name="WatcherPerformanceOptimizationsReasonRun"/>
+                </TextBlock>
+            </CheckBox>
+            <TextBlock Style="{StaticResource ScenarioDescriptionTextStyle}" TextWrapping="Wrap" Margin="0,10,0,0">
+                Press the Run button to begin scanning. Received advertisements are shown below.
+            </TextBlock>
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="RunButton" Content="Run" Margin="0,10,10,0" Click="RunButton_Click"/>
+                <Button x:Name="StopButton" Content="Stop" Margin="0,10,10,0" Click="StopButton_Click" IsEnabled="False"/>
+            </StackPanel>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollMode="Auto" VerticalScrollBarVisibility="Auto">
+            <ListBox
+                x:Name="ReceivedAdvertisementListBox"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                Margin="0,10,0,0"
+                ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                ScrollViewer.HorizontalScrollMode="Auto"/>
+        </ScrollViewer>
+    </Grid>
+</Page>
